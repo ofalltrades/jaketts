@@ -72,17 +72,23 @@ echo "🎉 Test 5 Passed!"
 
 # -------------------------------------------------------------
 echo -e "\n🔹 Test 6: Ingesting a Text Document via Default Audiobook Narrator Fallback"
-# This shorthand now passes cleanly because of our updated script intercept logic!
+# Passing -o by itself triggers output.wav, allowing your payload filename to satisfy the text position cleanly
 jaketts -o "$TEST_TXT"
 if [ ! -f "output.wav" ]; then echo "❌ Test 6 Failed: Shorthand text file routing broken."; exit 1; fi
 echo "🎉 Test 6 Passed!"
-
-
 
 # -------------------------------------------------------------
 echo -e "\n🔹 Test 7: Direct Speaker Playback Mode (Non-saving Live Stream Verification)"
 echo "🔊 [AUDIO TEST] You should hear the deep British voice speaking next..."
 jaketts "Three Rings for the Elven kings under the sky."
 echo "🎉 Test 7 Passed!"
+
+# -------------------------------------------------------------
+echo -e "\n🔹 Test 8: Multi-Language Dynamic Prefix Parsing Verification"
+TEST_WAVS+=("test8_ja.wav")
+# Verifies that passing a non-English voice code dynamically maps languages cleanly in the backend
+jaketts -v jf_alpha -o test8_ja.wav "こんにちは世界"
+if [ ! -f "test8_ja.wav" ]; then echo "❌ Test 8 Failed: Japanese voice configuration crashed."; exit 1; fi
+echo "🎉 Test 8 Passed!"
 
 echo -e "\n🚀 ALL INTEGRATION MATRIX TESTS PASSED SUCCESSFULLY!"
