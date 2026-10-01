@@ -2,25 +2,23 @@
 import sys
 import os
 import argparse
-import re
 import numpy as np
 import soundfile as sf
 import sounddevice as sd
 
-# Silence torch, tokenizer, and huggingface warnings completely
+# 1. Total framework warning and logger suppression
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 import warnings
 
 warnings.filterwarnings("ignore")
 
-# Silence huggingface_hub logger warnings like the unauthenticated token notice
 try:
     import logging
 
     logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
-    # Target alternative hub submodules that occasionally bypass parent loggers
     logging.getLogger("huggingface_hub.utils._validators").setLevel(logging.ERROR)
+    logging.getLogger("huggingface_hub.hub_mixin").setLevel(logging.ERROR)
 except:
     pass
 
@@ -35,10 +33,17 @@ except ImportError:
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv in ["-o", "--output"]:
-        potential_file = sys.argv
-        if os.path.isfile(potential_file) and not potential_file.endswith(".wav"):
-            sys.argv.insert(2, "output.wav")
+    # --- 2. Advanced Input Intercept for Shorthand Commands ---
+    # If the user runs `jaketts -o story.txt` or `jaketts --output story.txt` (exactly 3 items),
+    # argparse thinks story.txt is the output filename. If it's actually an existing text file,
+    # we rewrite the argument layout behind the scenes so argparse parses it cleanly.
+    if len(sys.argv) == 3 and sys.argv[1] in ["-o", "--output"]:
+        potential_file = sys.argv[2]
+        if os.path.isfile(potential_file) and not potential_file.lower().endswith(
+            ".wav"
+        ):
+            # Convert to: ['jaketts', '-o', 'output.wav', 'story.txt']
+            sys.argv = [sys.argv[0], sys.argv[1], "output.wav", potential_file]
 
     parser = argparse.ArgumentParser(
         description="🔊 Jake's Text-to-Speech CLI utility powered by Kokoro AI Engine."
@@ -50,7 +55,7 @@ def main():
         nargs="?",
         const="output.wav",
         default=None,
-        help="Path to save the .wav file instead of playing it aloud.",
+        help="Path to save the .wav file instead of playing it aloud. Defaults to 'output.wav'.",
         metavar="FILENAME",
     )
 
@@ -115,13 +120,11 @@ def main():
     if args.output is not None:
         print(f"💾 Gathering audio tracks for file output...")
 
-        # Split text by paragraphs/newlines to accurately guess chunk allocations
+        # Split text by paragraphs to initialize metrics
         paragraphs = [p for p in final_text.split("\n") if p.strip()]
         total_chunks = len(paragraphs) if paragraphs else 1
 
         audio_chunks = []
-
-        # Render the bar manually so we can force cap it at completion
         pbar = tqdm(total=total_chunks, desc="Processing Sentences", unit="chunk")
 
         for _, _, audio in generator:
@@ -129,7 +132,6 @@ def main():
                 audio_chunks.append(audio)
                 pbar.update(1)
 
-        # Force fill the loading bar to 100% right when the generator finishes cleanly
         pbar.n = pbar.total
         pbar.refresh()
         pbar.close()
