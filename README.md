@@ -25,6 +25,26 @@ The default voice is `bm_george`.
 
 On Apple Silicon, `jaketts` automatically allows PyTorch to use the MPS backend when available, with CPU fallback for unsupported operations. Heavy Kokoro/PyTorch imports remain deferred on CLI fast paths. The desktop GUI opens immediately and warms the default Kokoro model in a background thread so the first Play action is usually ready sooner.
 
+## Installation with Homebrew
+
+On Apple Silicon Macs running macOS 14 Sonoma or newer, install `jaketts` from the Homebrew tap:
+
+    brew install ofalltrades/tap/jaketts
+
+That installs both command aliases. Verify the installation with:
+
+    jtts -v
+
+Launch the desktop GUI:
+
+    jtts
+
+Or synthesize speech directly from the terminal:
+
+    jtts "Hello from Jaketts"
+
+The Homebrew formula is maintained at [ofalltrades/homebrew-tap](https://github.com/ofalltrades/homebrew-tap).
+
 ## Installation from PyPI
 
 Install the published package into your preferred Python environment:
