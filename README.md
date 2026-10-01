@@ -2,7 +2,7 @@
 
 `jaketts` — also available as the shorter `jtts` command — is a local text-to-speech utility for macOS powered by the open-weight **Kokoro-82M** model.
 
-It can play synthesized speech directly through your speakers, save WAV files, read plain-text files, switch between Kokoro voices, adjust playback speed, and launch a small Tkinter desktop interface when run with no arguments.
+It can play synthesized speech directly through your speakers, save WAV files, read plain-text files, switch between Kokoro voices, adjust playback speed, and launch a Qt desktop interface when run with no arguments.
 
 The default voice is `bm_george`.
 
@@ -14,7 +14,7 @@ The default voice is `bm_george`.
 - 🗣️ Optionless voice selection
 - ⏩ Adjustable speech speed with a 0.80× default
 - 🌍 Multiple Kokoro language/voice families
-- 🖥️ Native Tkinter GUI with voice, exact speed, volume, and Stop controls
+- 🖥️ Qt desktop GUI with voice, exact speed, volume, and Stop controls
 - 🔒 Local synthesis with no API key required
 - ⚡ `jaketts` and `jtts` command aliases
 - 🇯🇵 Automatic one-time Japanese dictionary setup when a Japanese voice is first used
