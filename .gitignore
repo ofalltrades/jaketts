@@ -29,3 +29,5 @@ mise.toml
 # Temporary Test Files
 *.txt
 *.egg-info/
+dist/
+build/
