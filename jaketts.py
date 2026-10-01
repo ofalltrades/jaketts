@@ -3,6 +3,7 @@ import sys
 import os
 import argparse
 import re
+import subprocess
 import numpy as np
 import soundfile as sf
 import sounddevice as sd
@@ -69,8 +70,71 @@ VOICE_WHITELIST = {
     "zm_yunyang",
 }
 
-PYTHON_VERSION = "1.0.4"
+LANGUAGE_CODES = {"a", "b", "e", "f", "h", "i", "j", "p", "z"}
 
+
+def get_language_code(voice):
+    """Return the Kokoro language code encoded by a voice ID."""
+    code = voice[:1].lower()
+    return code if code in LANGUAGE_CODES else "a"
+
+
+def ensure_language_resources(lang_code, status_callback=None):
+    """Download one-time language resources that pip cannot bundle directly."""
+    if lang_code != "j":
+        return
+
+    try:
+        import unidic
+    except ImportError as exc:
+        raise RuntimeError(
+            "Japanese support is not installed. Reinstall jaketts so its "
+            "Japanese dependencies are available."
+        ) from exc
+
+    mecabrc = os.path.join(unidic.DICDIR, "mecabrc")
+    if os.path.isfile(mecabrc):
+        return
+
+    message = (
+        "📚 Japanese support needs the UniDic dictionary. "
+        "Downloading it now (one-time setup, about 526 MB)..."
+    )
+    if status_callback is not None:
+        status_callback(message)
+    else:
+        print(message)
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "unidic", "download"],
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(
+            "Automatic UniDic download failed. Check your network connection "
+            "and that this Python environment is writable, then try again."
+        ) from exc
+
+    if not os.path.isfile(mecabrc):
+        raise RuntimeError(
+            "UniDic reported a successful download, but its dictionary files "
+            "could not be found afterward."
+        )
+
+    done_message = "✅ Japanese dictionary is ready."
+    if status_callback is not None:
+        status_callback(done_message)
+    else:
+        print(done_message)
+
+
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    JAKETTS_VERSION = version("jaketts")
+except PackageNotFoundError:
+    JAKETTS_VERSION = "unknown"
 
 try:
     import logging
@@ -84,6 +148,7 @@ try:
     logging.getLogger("huggingface_hub.utils._auth").setLevel(logging.ERROR)
 except:
     pass
+
 
 # --- SILENT CORE IMPORT BLOCK ---
 import contextlib
@@ -285,14 +350,8 @@ def launch_desktop_gui():
         # Extracts the raw voice name from the end (e.g., "af_heart")
         voice = dropdown_selection.split()[-1]
 
-        # Pulls the prefix inside the brackets to set the language code (a, b, e, f, h, i, j, p, z)
-        prefix = dropdown_selection.split("]")[0].replace("[", "").strip()
-        if "-" in prefix:
-            # Safely converts 'en-us' to 'a' and 'en-gb' to 'b'
-            lang_code = "a" if prefix.endswith("us") else "b"
-        else:
-            # Takes the first letter for other locales ('es' -> 'e', 'ja' -> 'j')
-            lang_code = prefix[0]
+        # Voice IDs encode Kokoro's language in their first character.
+        lang_code = get_language_code(voice)
 
         speed = speed_var.get()
 
@@ -302,6 +361,12 @@ def launch_desktop_gui():
                 progress_bar.config(mode="indet")
                 progress_bar.start(10)
 
+                ensure_language_resources(
+                    lang_code,
+                    status_callback=lambda message: root.after(
+                        0, lambda text=message: status_label.config(text=text)
+                    ),
+                )
                 pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
 
                 paragraphs = [p for p in input_text.split("\n") if p.strip()]
@@ -391,7 +456,7 @@ def main():
 
     # Preserve -v / --version exactly as requested.
     if "-v" in raw_args or "--version" in raw_args:
-        print(f"jaketts {PYTHON_VERSION}")
+        print(f"jaketts {JAKETTS_VERSION}")
         sys.exit(0)
 
     detected_voice = "bm_george"
@@ -530,7 +595,7 @@ def main():
         "-v",
         "--version",
         action="version",
-        version=f"%(prog)s {PYTHON_VERSION}",
+        version=f"%(prog)s {JAKETTS_VERSION}",
         help="Show the application's version number and exit.",
     )
 
@@ -575,9 +640,13 @@ def main():
         print("❌ Error: No text content found to synthesize.")
         sys.exit(1)
 
-    lang_code = args.voice.lower()
-    if lang_code not in ["a", "b", "e", "f", "h", "i", "j", "p", "z"]:
-        lang_code = "b" if lang_code.startswith("b") else "a"
+    lang_code = get_language_code(args.voice)
+
+    try:
+        ensure_language_resources(lang_code)
+    except RuntimeError as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     print(f"🤖 Initializing Kokoro Engine (Locale: {lang_code})...")
     try:

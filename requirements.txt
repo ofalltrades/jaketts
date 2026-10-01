@@ -1,4 +1,5 @@
 kokoro>=0.7.0
+misaki[ja,zh]>=0.9.4
 sounddevice>=0.4.0
 soundfile>=0.4.0
 numpy>=1.20.0,<2.0.0
