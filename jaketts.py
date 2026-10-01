@@ -10,20 +10,87 @@ import sounddevice as sd
 # Silence torch, tokenizer, and huggingface framework warnings completely
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 import warnings
 
 warnings.filterwarnings("ignore")
 
+VOICE_WHITELIST = {
+    "af_heart",
+    "af_sarah",
+    "af_bella",
+    "af_nicole",
+    "af_sky",
+    "af_alloy",
+    "af_aoede",
+    "af_jessica",
+    "af_river",
+    "am_adam",
+    "am_michael",
+    "am_echo",
+    "am_eric",
+    "am_fenrir",
+    "am_liam",
+    "am_onizuka",
+    "am_puck",
+    "am_santa",
+    "bm_george",
+    "bm_lewis",
+    "bf_emma",
+    "bf_isabella",
+    "bm_fable",
+    "bm_daniel",
+    "bf_alice",
+    "bf_lily",
+    "ef_dora",
+    "em_alex",
+    "ff_sixtine",
+    "fm_julien",
+    "hf_ananya",
+    "hf_kavya",
+    "hm_anshul",
+    "hm_shiwani",
+    "if_sara",
+    "im_nicola",
+    "jf_alpha",
+    "jf_glowing",
+    "jf_neutral",
+    "jf_reader",
+    "jm_kanta",
+    "pf_doris",
+    "pm_ramon",
+    "zf_xiaobei",
+    "zf_xiaoni",
+    "zf_xiaoxiao",
+    "zf_xiaoyi",
+    "zm_yunjian",
+    "zm_yunxi",
+    "zm_yunxia",
+    "zm_yunyang",
+}
+
+PYTHON_VERSION = "1.0.4"
+
+
 try:
     import logging
 
+    # Silence the standard huggingface_hub loggers
     logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
     logging.getLogger("huggingface_hub.utils._validators").setLevel(logging.ERROR)
     logging.getLogger("huggingface_hub.hub_mixin").setLevel(logging.ERROR)
+
+    # Silence the explicit unauthenticated warning submodule
+    logging.getLogger("huggingface_hub.utils._auth").setLevel(logging.ERROR)
 except:
     pass
 
-from kokoro import KPipeline
+# --- SILENT CORE IMPORT BLOCK ---
+import contextlib
+
+with contextlib.redirect_stderr(open(os.devnull, "w")):
+    # This temporarily redirects all library boot warnings straight to the trash
+    from kokoro import KPipeline
 
 try:
     from tqdm import tqdm
@@ -320,6 +387,18 @@ def main():
         launch_desktop_gui()
         sys.exit(0)
 
+    # --- Smart Whitelist Voice Detection Intercept ---
+    # Default fallback voice remains bm_george
+    active_voice = "bm_george"
+
+    # Scan the terminal inputs to check if any string matches a known voice ID
+    for arg in sys.argv[1:]:
+        if arg.lower() in VOICE_WHITELIST:
+            active_voice = arg.lower()
+            sys.argv.remove(arg)  # Safely strip it out so argparse doesn't break
+            break
+
+    # Advanced Input Intercept for terminal shorthand commands
     if len(sys.argv) == 3 and sys.argv[1] in ["-o", "--output"]:
         potential_file = sys.argv[2]
         if os.path.isfile(potential_file) and not potential_file.lower().endswith(
@@ -327,9 +406,20 @@ def main():
         ):
             sys.argv = [sys.argv[0], "-o", "output.wav", potential_file]
 
+    # --- Modernized Argparse Configuration ---
     parser = argparse.ArgumentParser(
-        description="🔊 Jake's Text-to-Speech CLI utility powered by Kokoro."
+        description="🔊 Jake's Smart Text-to-Speech CLI utility powered by Kokoro."
     )
+
+    # -v and --version are now the undisputed version checkers
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {PYTHON_VERSION}",
+        help="Show the application's version number and exit.",
+    )
+
     parser.add_argument(
         "-o",
         "--output",
@@ -338,17 +428,19 @@ def main():
         default=None,
         help="Output filename.",
     )
-    parser.add_argument(
-        "-v", "--voice", default="bm_george", help="Voice profile ID selection."
-    )
+
     parser.add_argument(
         "-s", "--speed", type=float, default=1.0, help="Vocal speed modifier parameter."
     )
+
     parser.add_argument(
         "text_input", help="The text string or path to a .txt file input source."
     )
 
     args = parser.parse_args()
+
+    # Re-inject our smart-detected voice back into the args namespace
+    args.voice = active_voice
 
     final_text = args.text_input
     if os.path.isfile(args.text_input):

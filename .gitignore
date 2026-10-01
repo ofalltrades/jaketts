@@ -31,3 +31,6 @@ mise.toml
 *.egg-info/
 dist/
 build/
+
+# Editor
+.vscode/

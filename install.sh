@@ -1,26 +1,40 @@
 #!/usr/bin/env bash
 
-# Exit immediately if any command fails
 set -e
 
 echo "🚀 Starting installation for jaketts..."
 
-# 1. Ensure the script is running from its root folder layout context
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 cd "$SCRIPT_DIR"
 
-# 2. Make the core engine files executable locally
+# --- SYSTEM COLLISION CHECKS ---
+# Check if commands already exist and do NOT point to our directory
+for cmd in "jaketts" "jtts"; do
+    if command -v "$cmd" &> /dev/null; then
+        # Check if the existing command is a symlink pointing elsewhere
+        EXISTING_PATH=$(which "$cmd" || true)
+        if [ -L "$EXISTING_PATH" ]; then
+            TARGET_PATH=$(readlink "$EXISTING_PATH" || true)
+            # If it points to our folder, it's just an update, which is fine
+            if [[ "$TARGET_PATH" == *"$SCRIPT_DIR"* ]]; then
+                continue
+            fi
+        fi
+        
+        echo "⚠️ Warning: A command named '$cmd' already exists at $EXISTING_PATH"
+        read -p "Do you want to overwrite it? (y/N): " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            echo "❌ Installation aborted by user to prevent command collision."
+            exit 1
+        fi
+    fi
+done
+
 echo "🔒 Adjusting permissions..."
 chmod +x jaketts.py
 
-# 3. Create systemic symlinks in /usr/local/bin
 echo "🔗 Creating command shortcuts (requires sudo permissions)..."
-# Link the primary binary
 sudo ln -sf "$SCRIPT_DIR/jaketts.py" /usr/local/bin/jaketts
-
-# Link the requested alias binary (jtts)
 sudo ln -sf "$SCRIPT_DIR/jaketts.py" /usr/local/bin/jtts
 
-echo "🎉 Success! You can now run the following commands globally from any directory:"
-echo "   👉 jaketts \"Your text here\""
-echo "   👉 jtts \"Your text here\""
+echo "🎉 Success! Global shortcuts are successfully linked."
