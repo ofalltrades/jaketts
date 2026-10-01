@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="jaketts",
-    version="1.0.1",
+    version="1.0.2",
     description="Jake's Local CLI Text-to-Speech tool powered by Kokoro-82M",
     author="Jake",
     py_modules=["jaketts"],
