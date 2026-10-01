@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="jaketts",
-    version="1.0.0",
+    version="1.0.1",
     description="Jake's Local CLI Text-to-Speech tool powered by Kokoro-82M",
     author="Jake",
     py_modules=["jaketts"],
@@ -20,5 +20,5 @@ setup(
             "jtts=jaketts:main",
         ],
     },
-    python_requires=">=3.10,<3.13",
+    python_requires=">=3.10",
 )
