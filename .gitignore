@@ -23,6 +23,7 @@ env/
 hf_models/
 
 # Local Environment Managers
+.mise.toml
 mise.toml
 
 # Temporary Test Files
