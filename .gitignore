@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Mac OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Text-to-Speech Output Files
+*.wav
+*.mp3
+
+# Downloaded Hugging Face weights cache (if saved locally in the path)
+.cache/
+hf_models/
+
+# Local Environment Managers
+mise.toml
+
+# Temporary Test Files
+*.txt
