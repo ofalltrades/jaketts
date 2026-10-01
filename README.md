@@ -12,9 +12,9 @@ The default voice is `bm_george`.
 - 💾 WAV file export
 - 📖 Plain-text file input
 - 🗣️ Optionless voice selection
-- ⏩ Adjustable speech speed
+- ⏩ Adjustable speech speed with a 0.80× default
 - 🌍 Multiple Kokoro language/voice families
-- 🖥️ Native Tkinter GUI with voice, speed, and volume controls
+- 🖥️ Native Tkinter GUI with voice, exact speed, volume, and Stop controls
 - 🔒 Local synthesis with no API key required
 - ⚡ `jaketts` and `jtts` command aliases
 - 🇯🇵 Automatic one-time Japanese dictionary setup when a Japanese voice is first used
@@ -23,7 +23,7 @@ The default voice is `bm_george`.
 
 `jaketts` currently supports Python 3.10 through Python 3.12.
 
-On Apple Silicon, `jaketts` automatically allows PyTorch to use the MPS backend when available, with CPU fallback for unsupported operations. Heavy Kokoro/PyTorch imports are deferred until synthesis actually starts, so lightweight CLI operations and GUI launch remain responsive.
+On Apple Silicon, `jaketts` automatically allows PyTorch to use the MPS backend when available, with CPU fallback for unsupported operations. Heavy Kokoro/PyTorch imports remain deferred on CLI fast paths. The desktop GUI opens immediately and warms the default Kokoro model in a background thread so the first Play action is usually ready sooner.
 
 ## Installation from PyPI
 
@@ -90,7 +90,7 @@ or:
 jtts
 ```
 
-The GUI launches in its own process, so the terminal prompt is returned immediately while the desktop window remains open.
+The GUI launches in its own process, so the terminal prompt is returned immediately while the desktop window remains open. It begins warming the default speech engine in the background while you enter text. The speed control combines a slider with a typeable exact-value field, and Stop immediately ends the current playback/generation job without closing the window.
 
 ### Speak text using the default voice
 
@@ -173,6 +173,8 @@ jtts --output=narration.wav "Save this narration."
 ```
 
 ### Change speech speed
+
+The default speed is `0.8` (shown as `0.80×` in the GUI).
 
 ```bash
 jtts -s 1.25 "Speak this a little faster."

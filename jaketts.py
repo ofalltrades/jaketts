@@ -276,10 +276,10 @@ def launch_desktop_gui():
     root = tk.Tk()
     root.title("jaketts — Text to Speech")
 
-    # Brand palette: deep teal-blue for structure, brighter cyan-blue for
+    # Brand palette: dark teal-blue for structure, mid teal-blue for
     # interactive accents, and pale blue surfaces to avoid a flat white UI.
-    brand = "#006186"
-    accent = "#219ac8"
+    brand = "#004d6a"
+    accent = "#006186"
     accent_hover = "#1888b3"
     brand_hover = "#004d6a"
     bg = "#eaf5f8"
@@ -369,6 +369,19 @@ def launch_desktop_gui():
         fieldbackground=[("readonly", "white")],
         selectbackground=[("readonly", "white")],
         selectforeground=[("readonly", ink)],
+        bordercolor=[("focus", accent)],
+    )
+    style.configure(
+        "Brand.TEntry",
+        fieldbackground="white",
+        foreground=ink,
+        bordercolor=border,
+        lightcolor=border,
+        darkcolor=border,
+        padding=5,
+    )
+    style.map(
+        "Brand.TEntry",
         bordercolor=[("focus", accent)],
     )
     style.configure(
@@ -492,14 +505,29 @@ def launch_desktop_gui():
     )
     voice_dropdown.grid(row=1, column=0, sticky="ew", pady=(7, 0))
 
-    speed_var = tk.DoubleVar(value=1.0)
+    speed_var = tk.DoubleVar(value=0.8)
+    speed_entry_var = tk.StringVar(value="0.80")
     speed_row = ttk.Frame(controls_card, style="TintCard.TFrame")
     speed_row.grid(row=1, column=1, sticky="ew", padx=(18, 0), pady=(7, 0))
     speed_row.columnconfigure(0, weight=1)
-    speed_scale = ttk.Scale(speed_row, from_=0.5, to=2.0, variable=speed_var, orient=tk.HORIZONTAL, style="Brand.Horizontal.TScale")
+    speed_scale = ttk.Scale(
+        speed_row,
+        from_=0.5,
+        to=2.0,
+        variable=speed_var,
+        orient=tk.HORIZONTAL,
+        style="Brand.Horizontal.TScale",
+    )
     speed_scale.grid(row=0, column=0, sticky="ew")
-    speed_label = ttk.Label(speed_row, text="1.00×", style="Value.TLabel", width=6, anchor="e")
-    speed_label.grid(row=0, column=1, padx=(8, 0))
+    speed_entry = ttk.Entry(
+        speed_row,
+        textvariable=speed_entry_var,
+        width=6,
+        justify="right",
+        style="Brand.TEntry",
+    )
+    speed_entry.grid(row=0, column=1, padx=(8, 2))
+    ttk.Label(speed_row, text="×", style="Value.TLabel").grid(row=0, column=2, sticky="w")
 
     volume_var = tk.DoubleVar(value=100.0)
     volume_row = ttk.Frame(controls_card, style="TintCard.TFrame")
@@ -510,13 +538,26 @@ def launch_desktop_gui():
     volume_label = ttk.Label(volume_row, text="100%", style="Value.TLabel", width=5, anchor="e")
     volume_label.grid(row=0, column=1, padx=(8, 0))
 
-    def update_speed_label(*_args):
-        speed_label.config(text=f"{speed_var.get():.2f}×")
+    def update_speed_from_slider(value):
+        speed_entry_var.set(f"{float(value):.2f}")
+
+    def commit_speed(_event=None):
+        """Apply an exact typed speed and keep the slider in sync."""
+        try:
+            value = float(speed_entry_var.get().strip())
+        except ValueError:
+            value = speed_var.get()
+
+        value = max(0.5, min(2.0, value))
+        speed_var.set(value)
+        speed_entry_var.set(f"{value:.2f}")
 
     def update_volume_label(*_args):
         volume_label.config(text=f"{round(volume_var.get()):d}%")
 
-    speed_var.trace_add("write", update_speed_label)
+    speed_scale.configure(command=update_speed_from_slider)
+    speed_entry.bind("<Return>", commit_speed)
+    speed_entry.bind("<FocusOut>", commit_speed)
     volume_var.trace_add("write", update_volume_label)
 
     # Status / progress
@@ -531,6 +572,8 @@ def launch_desktop_gui():
 
     ui_queue = queue.Queue()
     shutdown_event = threading.Event()
+    job_cancel_event = threading.Event()
+    job_running_event = threading.Event()
 
     def post_ui(callback, *args):
         """Queue a UI operation for the Tk main thread unless shutdown began."""
@@ -558,9 +601,13 @@ def launch_desktop_gui():
         state = "normal" if enabled else "disabled"
         for button in (open_button, clear_button, save_button, play_button):
             button.config(state=state)
+        stop_button.config(state="disabled" if enabled else "normal")
 
     def set_busy(enabled):
         post_ui(set_buttons_enabled, not enabled)
+
+    def job_cancelled():
+        return shutdown_event.is_set() or job_cancel_event.is_set()
 
     def set_indeterminate_progress():
         progress_bar.config(mode="indeterminate")
@@ -610,6 +657,25 @@ def launch_desktop_gui():
             return audio_array
         return np.clip(audio_array * volume_level, -1.0, 1.0)
 
+    def warm_speech_engine():
+        """Warm the default Kokoro model in the background after GUI launch."""
+        if shutdown_event.is_set():
+            return
+
+        set_status("Warming speech engine…")
+        try:
+            # The default voice is British English, so warming the `b` pipeline
+            # loads the shared Kokoro model most users will need first. Other
+            # language pipelines can then reuse that already-loaded model.
+            get_cached_pipeline("b")
+        except Exception:
+            # Warm-up is opportunistic. If it fails, the normal Play/Save path
+            # will surface the real error to the user when synthesis is requested.
+            pass
+        finally:
+            if not shutdown_event.is_set() and not job_running_event.is_set():
+                set_status("Ready")
+
     def open_text_file():
         file_path = filedialog.askopenfilename(
             filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
@@ -653,12 +719,15 @@ def launch_desktop_gui():
 
         voice = voice_var.get().split()[-1]
         lang_code = get_language_code(voice)
+        commit_speed()
         speed = speed_var.get()
         volume_level = volume_var.get() / 100.0
+        job_cancel_event.clear()
+        job_running_event.set()
 
         def worker():
             try:
-                if shutdown_event.is_set():
+                if job_cancelled():
                     return
 
                 set_busy(True)
@@ -666,11 +735,11 @@ def launch_desktop_gui():
                 post_ui(set_indeterminate_progress)
 
                 ensure_language_resources(lang_code, status_callback=set_status)
-                if shutdown_event.is_set():
+                if job_cancelled():
                     return
 
                 pipeline = get_cached_pipeline(lang_code)
-                if shutdown_event.is_set():
+                if job_cancelled():
                     return
 
                 paragraphs = [p for p in input_text.split("\n") if p.strip()]
@@ -682,28 +751,28 @@ def launch_desktop_gui():
                     import sounddevice as sd
 
                     for para in paragraphs:
-                        if shutdown_event.is_set():
+                        if job_cancelled():
                             return
                         generator = pipeline(para, voice=voice, speed=speed)
                         for _, _, audio in generator:
-                            if shutdown_event.is_set():
+                            if job_cancelled():
                                 return
                             if audio is not None:
                                 sd.play(apply_volume(audio, volume_level), samplerate=24000)
                                 sd.wait()
-                                if shutdown_event.is_set():
+                                if job_cancelled():
                                     return
                         post_ui(step_progress)
-                    if not shutdown_event.is_set():
+                    if not job_cancelled():
                         set_status("Playback finished")
                 else:
                     audio_chunks = []
                     for para in paragraphs:
-                        if shutdown_event.is_set():
+                        if job_cancelled():
                             return
                         generator = pipeline(para, voice=voice, speed=speed)
                         for _, _, audio in generator:
-                            if shutdown_event.is_set():
+                            if job_cancelled():
                                 return
                             if audio is not None:
                                 audio_chunks.append(apply_volume(audio, volume_level))
@@ -725,24 +794,44 @@ def launch_desktop_gui():
                     )
 
             except Exception as e:
-                if not shutdown_event.is_set():
+                if not job_cancelled():
                     set_status("Synthesis failed")
                     post_ui(messagebox.showerror, "Synthesis failed", str(e))
             finally:
+                job_running_event.clear()
                 if not shutdown_event.is_set():
+                    was_stopped = job_cancel_event.is_set()
                     post_ui(reset_progress)
                     set_busy(False)
+                    if was_stopped:
+                        set_status("Stopped")
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def stop_current_job():
+        """Stop current playback/generation without closing the GUI."""
+        if job_cancel_event.is_set():
+            return
+
+        job_cancel_event.set()
+        status_var.set("Stopping…")
+        try:
+            sd_module = sys.modules.get("sounddevice")
+            if sd_module is not None:
+                sd_module.stop()
+        except Exception:
+            pass
 
     open_button = ttk.Button(action_frame, text="Open text file", style="Secondary.TButton", command=open_text_file)
     open_button.grid(row=0, column=0, sticky="w")
     clear_button = ttk.Button(action_frame, text="Clear", style="Secondary.TButton", command=clear_text)
     clear_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
+    stop_button = ttk.Button(action_frame, text="Stop", style="Secondary.TButton", command=stop_current_job, state="disabled")
+    stop_button.grid(row=0, column=3, sticky="e", padx=(0, 8))
     save_button = ttk.Button(action_frame, text="Save WAV", style="Secondary.TButton", command=lambda: run_synthesis("save"))
-    save_button.grid(row=0, column=3, sticky="e", padx=(0, 8))
+    save_button.grid(row=0, column=4, sticky="e", padx=(0, 8))
     play_button = ttk.Button(action_frame, text="Play speech", style="Primary.TButton", command=lambda: run_synthesis("play"))
-    play_button.grid(row=0, column=4, sticky="e")
+    play_button.grid(row=0, column=5, sticky="e")
 
     def close_gui():
         """Stop active playback/work and close without worker/Tk races."""
@@ -750,6 +839,7 @@ def launch_desktop_gui():
             return
 
         shutdown_event.set()
+        job_cancel_event.set()
         try:
             sd_module = sys.modules.get("sounddevice")
             if sd_module is not None:
@@ -793,6 +883,7 @@ def launch_desktop_gui():
 
     text_box.focus_set()
     process_ui_queue()
+    threading.Thread(target=warm_speech_engine, daemon=True).start()
     root.mainloop()
 
 def main():
@@ -820,7 +911,7 @@ def main():
     output_requested = False
     output_file = None
 
-    detected_speed = "1.0"
+    detected_speed = "0.8"
     speed_found = False
 
     text_tokens = []
@@ -965,8 +1056,8 @@ def main():
         "-s",
         "--speed",
         type=float,
-        default=1.0,
-        help="Speed multiplier.",
+        default=0.8,
+        help="Speed multiplier (default: 0.8).",
     )
 
     parser.add_argument(

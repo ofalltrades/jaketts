@@ -212,12 +212,21 @@ echo "🎉 Test 17 Passed!"
 
 
 # -------------------------------------------------------------
-echo -e "\n🔹 Test 18: Bare -o With Default Voice"
+echo -e "\n🔹 Test 18: Bare -o With Default Voice and Default Speed"
 rm -f output.wav
-jaketts -o \
-    "No explicit voice was supplied in this invocation."
+if ! test18_output="$(jaketts -o \
+    "No explicit voice was supplied in this invocation." 2>&1)"; then
+    echo "$test18_output"
+    echo "❌ Test 18 Failed: Default invocation crashed."
+    exit 1
+fi
+echo "$test18_output"
 if [ ! -s "output.wav" ]; then
-    echo "❌ Test 18 Failed."
+    echo "❌ Test 18 Failed: Default output file missing or empty."
+    exit 1
+fi
+if [[ "$test18_output" != *"Speed: 0.8x"* ]]; then
+    echo "❌ Test 18 Failed: Default speed is not 0.8x."
     exit 1
 fi
 echo "🎉 Test 18 Passed!"
