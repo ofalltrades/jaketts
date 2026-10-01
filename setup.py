@@ -6,7 +6,7 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="jaketts",
-    version="1.0.7",
+    version="1.0.8",
     description="Jake's local CLI text-to-speech tool powered by Kokoro-82M",
     long_description=README,
     long_description_content_type="text/markdown",
@@ -20,6 +20,7 @@ setup(
     license_files=["LICENSE"],
     py_modules=["jaketts"],
     install_requires=[
+        "PySide6-Essentials>=6.8,<7",
         "kokoro>=0.7.0",
         "misaki[ja,zh]>=0.9.4",
         "sounddevice>=0.4.0",

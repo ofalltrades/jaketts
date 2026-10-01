@@ -191,8 +191,10 @@ def get_kpipeline_class():
 def get_tqdm():
     try:
         from tqdm import tqdm as imported_tqdm
+
         return imported_tqdm
     except ImportError:
+
         class _SimpleProgress:
             def __init__(self, total=None, **_kwargs):
                 self.total = total or 0
@@ -259,13 +261,37 @@ def launch_desktop_gui_detached():
         launch_desktop_gui()
 
 
-# --- NATIVE DESKTOP GUI APP ---
+# --- QT DESKTOP GUI APP ---
 def launch_desktop_gui():
-    """Launch the native Tkinter desktop interface when no CLI args are given."""
-    import tkinter as tk
-    from tkinter import ttk, filedialog, messagebox
+    """Launch the PySide6/Qt desktop interface when no CLI args are given."""
     import threading
-    import queue
+
+    try:
+        from PySide6.QtCore import QObject, Qt, Signal
+        from PySide6.QtWidgets import (
+            QApplication,
+            QComboBox,
+            QDoubleSpinBox,
+            QFileDialog,
+            QGridLayout,
+            QGroupBox,
+            QHBoxLayout,
+            QLabel,
+            QMainWindow,
+            QMessageBox,
+            QPlainTextEdit,
+            QProgressBar,
+            QPushButton,
+            QSizePolicy,
+            QSlider,
+            QVBoxLayout,
+            QWidget,
+        )
+    except ImportError as exc:
+        raise RuntimeError(
+            "The desktop GUI requires PySide6. Install it with "
+            "`python -m pip install PySide6-Essentials` and try again."
+        ) from exc
 
     # Keep one Kokoro model warm for the lifetime of the GUI. Pipelines are
     # cached per language and share the same language-independent model.
@@ -273,356 +299,331 @@ def launch_desktop_gui():
     shared_model = None
     pipeline_lock = threading.Lock()
 
-    root = tk.Tk()
-    root.title("jaketts — Text to Speech")
-
-    # Brand palette: dark teal-blue for structure, mid teal-blue for
-    # interactive accents, and pale blue surfaces to avoid a flat white UI.
-    brand = "#004d6a"
-    accent = "#006186"
-    accent_hover = "#1888b3"
-    brand_hover = "#004d6a"
-    bg = "#eaf5f8"
-    card = "#f8fcfd"
-    card_alt = "#e2f3f8"
-    text_bg = "#fcfeff"
-    border = "#9bc9d8"
-    ink = "#12313d"
-    muted = "#55727d"
-    header_muted = "#c8eaf5"
-    soft = "#d8edf4"
-
-    root.configure(bg=bg)
-
-    style = ttk.Style(root)
-    try:
-        style.theme_use("clam")
-    except tk.TclError:
-        pass
-
-    style.configure("App.TFrame", background=bg)
-    style.configure("Header.TFrame", background=brand)
-    style.configure("Card.TFrame", background=card)
-    style.configure("TintCard.TFrame", background=card_alt)
-    style.configure("Title.TLabel", background=brand, foreground="white", font=("Helvetica", 24, "bold"))
-    style.configure("Subtitle.TLabel", background=brand, foreground=header_muted, font=("Helvetica", 11))
-    style.configure("Version.TLabel", background=brand, foreground=header_muted, font=("Helvetica", 9, "bold"))
-    style.configure("CardTitle.TLabel", background=card, foreground=brand, font=("Helvetica", 11, "bold"))
-    style.configure("Field.TLabel", background=card_alt, foreground=brand, font=("Helvetica", 9, "bold"))
-    style.configure("Value.TLabel", background=card_alt, foreground=ink, font=("Helvetica", 9, "bold"))
-    style.configure("CardValue.TLabel", background=card, foreground=muted, font=("Helvetica", 9, "bold"))
-    style.configure("Status.TLabel", background=bg, foreground=brand, font=("Helvetica", 10, "bold"))
-    style.configure(
-        "Primary.TButton",
-        background=accent,
-        foreground="white",
-        borderwidth=0,
-        focusthickness=0,
-        padding=(18, 11),
-        font=("Helvetica", 10, "bold"),
-    )
-    style.map(
-        "Primary.TButton",
-        background=[("active", accent_hover), ("pressed", brand), ("disabled", "#8eb8c7")],
-        foreground=[("disabled", "#e9f4f7")],
-    )
-    style.configure(
-        "Secondary.TButton",
-        background=soft,
-        foreground=brand,
-        borderwidth=0,
-        focusthickness=0,
-        padding=(14, 10),
-        font=("Helvetica", 10, "bold"),
-    )
-    style.map(
-        "Secondary.TButton",
-        background=[("active", "#c8e5ef"), ("pressed", "#b6dce9")],
-        foreground=[("active", brand_hover)],
-    )
-    style.configure(
-        "Brand.Horizontal.TProgressbar",
-        troughcolor="#cce6ef",
-        background=accent,
-        bordercolor="#cce6ef",
-        lightcolor=accent,
-        darkcolor=accent,
-    )
-    style.configure(
-        "Brand.Horizontal.TScale",
-        background=card_alt,
-        troughcolor="#b9dae5",
-    )
-    style.configure(
-        "Brand.TCombobox",
-        fieldbackground="white",
-        background="white",
-        foreground=ink,
-        arrowcolor=brand,
-        bordercolor=border,
-        lightcolor=border,
-        darkcolor=border,
-        padding=5,
-    )
-    style.map(
-        "Brand.TCombobox",
-        fieldbackground=[("readonly", "white")],
-        selectbackground=[("readonly", "white")],
-        selectforeground=[("readonly", ink)],
-        bordercolor=[("focus", accent)],
-    )
-    style.configure(
-        "Brand.TEntry",
-        fieldbackground="white",
-        foreground=ink,
-        bordercolor=border,
-        lightcolor=border,
-        darkcolor=border,
-        padding=5,
-    )
-    style.map(
-        "Brand.TEntry",
-        bordercolor=[("focus", accent)],
-    )
-    style.configure(
-        "Brand.Vertical.TScrollbar",
-        background=soft,
-        troughcolor=card,
-        arrowcolor=brand,
-        bordercolor=card,
-        lightcolor=soft,
-        darkcolor=soft,
-    )
-
-    # Match the native combobox popup to the rest of the palette where Tk
-    # exposes those option-database hooks.
-    root.option_add("*TCombobox*Listbox.background", "white")
-    root.option_add("*TCombobox*Listbox.foreground", ink)
-    root.option_add("*TCombobox*Listbox.selectBackground", accent)
-    root.option_add("*TCombobox*Listbox.selectForeground", "white")
-
-    main_frame = ttk.Frame(root, style="App.TFrame", padding=(26, 22, 26, 22))
-    main_frame.pack(fill=tk.BOTH, expand=True)
-
-    # Header band
-    header = ttk.Frame(main_frame, style="Header.TFrame", padding=(20, 16))
-    header.pack(fill=tk.X, pady=(0, 16))
-    header.columnconfigure(0, weight=1)
-
-    title_block = ttk.Frame(header, style="Header.TFrame")
-    title_block.grid(row=0, column=0, sticky="w")
-    ttk.Label(title_block, text="jaketts", style="Title.TLabel").pack(anchor="w")
-    ttk.Label(
-        title_block,
-        text="Local text-to-speech powered by Kokoro-82M",
-        style="Subtitle.TLabel",
-    ).pack(anchor="w", pady=(2, 0))
-    ttk.Label(header, text=f"v{JAKETTS_VERSION}", style="Version.TLabel").grid(
-        row=0, column=1, sticky="ne", pady=(8, 0)
-    )
-
-    # Text editor card
-    editor_card = ttk.Frame(main_frame, style="Card.TFrame", padding=16)
-    editor_card.pack(fill=tk.BOTH, expand=True)
-
-    editor_header = ttk.Frame(editor_card, style="Card.TFrame")
-    editor_header.pack(fill=tk.X, pady=(0, 8))
-    editor_header.columnconfigure(0, weight=1)
-    ttk.Label(editor_header, text="Text", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
-    char_count_var = tk.StringVar(value="0 characters")
-    ttk.Label(editor_header, textvariable=char_count_var, style="CardValue.TLabel").grid(row=0, column=1, sticky="e")
-
-    text_container = ttk.Frame(editor_card, style="Card.TFrame")
-    text_container.pack(fill=tk.BOTH, expand=True)
-
-    text_scroll = ttk.Scrollbar(text_container, style="Brand.Vertical.TScrollbar")
-    text_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-    text_box = tk.Text(
-        text_container,
-        yscrollcommand=text_scroll.set,
-        wrap=tk.WORD,
-        height=14,
-        font=("Helvetica", 12),
-        bg=text_bg,
-        fg=ink,
-        insertbackground=ink,
-        selectbackground="#b9e5f5",
-        relief=tk.FLAT,
-        borderwidth=0,
-        highlightthickness=1,
-        highlightbackground=border,
-        highlightcolor=accent,
-        padx=12,
-        pady=12,
-        undo=True,
-    )
-    text_box.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
-    text_scroll.config(command=text_box.yview)
-
-    def update_character_count(_event=None):
-        if text_box.edit_modified():
-            content = text_box.get("1.0", "end-1c")
-            count = len(content)
-            char_count_var.set(f"{count:,} character" + ("" if count == 1 else "s"))
-            text_box.edit_modified(False)
-
-    text_box.bind("<<Modified>>", update_character_count)
-    text_box.edit_modified(False)
-
-    # Voice / speed / volume controls
-    controls_card = ttk.Frame(main_frame, style="TintCard.TFrame", padding=16)
-    controls_card.pack(fill=tk.X, pady=(14, 0))
-    for column in range(3):
-        controls_card.columnconfigure(column, weight=1, uniform="controls")
-
-    ttk.Label(controls_card, text="VOICE", style="Field.TLabel").grid(row=0, column=0, sticky="w")
-    ttk.Label(controls_card, text="SPEED", style="Field.TLabel").grid(row=0, column=1, sticky="w", padx=(18, 0))
-    ttk.Label(controls_card, text="VOLUME", style="Field.TLabel").grid(row=0, column=2, sticky="w", padx=(18, 0))
-
-    voice_var = tk.StringVar(value="[en-gb] bm_george")
-    voice_dropdown = ttk.Combobox(
-        controls_card,
-        textvariable=voice_var,
-        state="readonly",
-        width=24,
-        style="Brand.TCombobox",
-    )
-    voice_dropdown["values"] = (
-        "[en-us] af_heart", "[en-us] af_sarah", "[en-us] af_bella", "[en-us] af_nicole",
-        "[en-us] af_sky", "[en-us] af_alloy", "[en-us] af_aoede", "[en-us] af_jessica",
-        "[en-us] af_river", "[en-us] am_adam", "[en-us] am_michael", "[en-us] am_echo",
-        "[en-us] am_eric", "[en-us] am_fenrir", "[en-us] am_liam", "[en-us] am_onizuka",
-        "[en-us] am_puck", "[en-us] am_santa", "[en-gb] bm_george", "[en-gb] bm_lewis",
-        "[en-gb] bf_emma", "[en-gb] bf_isabella", "[en-gb] bm_fable", "[en-gb] bm_daniel",
-        "[en-gb] bf_alice", "[en-gb] bf_lily", "[es] ef_dora", "[es] em_alex",
-        "[fr] ff_sixtine", "[fr] fm_julien", "[hi] hf_ananya", "[hi] hf_kavya",
-        "[hi] hm_anshul", "[hi] hm_shiwani", "[it] if_sara", "[it] im_nicola",
-        "[ja] jf_alpha", "[ja] jf_glowing", "[ja] jf_neutral", "[ja] jf_reader",
-        "[ja] jm_kanta", "[pt] pf_doris", "[pt] pm_ramon", "[zh] zf_xiaobei",
-        "[zh] zf_xiaoni", "[zh] zf_xiaoxiao", "[zh] zf_xiaoyi", "[zh] zm_yunjian",
-        "[zh] zm_yunxi", "[zh] zm_yunxia", "[zh] zm_yunyang",
-    )
-    voice_dropdown.grid(row=1, column=0, sticky="ew", pady=(7, 0))
-
-    speed_var = tk.DoubleVar(value=0.8)
-    speed_entry_var = tk.StringVar(value="0.80")
-    speed_row = ttk.Frame(controls_card, style="TintCard.TFrame")
-    speed_row.grid(row=1, column=1, sticky="ew", padx=(18, 0), pady=(7, 0))
-    speed_row.columnconfigure(0, weight=1)
-    speed_scale = ttk.Scale(
-        speed_row,
-        from_=0.5,
-        to=2.0,
-        variable=speed_var,
-        orient=tk.HORIZONTAL,
-        style="Brand.Horizontal.TScale",
-    )
-    speed_scale.grid(row=0, column=0, sticky="ew")
-    speed_entry = ttk.Entry(
-        speed_row,
-        textvariable=speed_entry_var,
-        width=6,
-        justify="right",
-        style="Brand.TEntry",
-    )
-    speed_entry.grid(row=0, column=1, padx=(8, 2))
-    ttk.Label(speed_row, text="×", style="Value.TLabel").grid(row=0, column=2, sticky="w")
-
-    volume_var = tk.DoubleVar(value=100.0)
-    volume_row = ttk.Frame(controls_card, style="TintCard.TFrame")
-    volume_row.grid(row=1, column=2, sticky="ew", padx=(18, 0), pady=(7, 0))
-    volume_row.columnconfigure(0, weight=1)
-    volume_scale = ttk.Scale(volume_row, from_=0, to=100, variable=volume_var, orient=tk.HORIZONTAL, style="Brand.Horizontal.TScale")
-    volume_scale.grid(row=0, column=0, sticky="ew")
-    volume_label = ttk.Label(volume_row, text="100%", style="Value.TLabel", width=5, anchor="e")
-    volume_label.grid(row=0, column=1, padx=(8, 0))
-
-    def update_speed_from_slider(value):
-        speed_entry_var.set(f"{float(value):.2f}")
-
-    def commit_speed(_event=None):
-        """Apply an exact typed speed and keep the slider in sync."""
-        try:
-            value = float(speed_entry_var.get().strip())
-        except ValueError:
-            value = speed_var.get()
-
-        value = max(0.5, min(2.0, value))
-        speed_var.set(value)
-        speed_entry_var.set(f"{value:.2f}")
-
-    def update_volume_label(*_args):
-        volume_label.config(text=f"{round(volume_var.get()):d}%")
-
-    speed_scale.configure(command=update_speed_from_slider)
-    speed_entry.bind("<Return>", commit_speed)
-    speed_entry.bind("<FocusOut>", commit_speed)
-    volume_var.trace_add("write", update_volume_label)
-
-    # Status / progress
-    progress_bar = ttk.Progressbar(main_frame, orient=tk.HORIZONTAL, mode="determinate", style="Brand.Horizontal.TProgressbar")
-    progress_bar.pack(fill=tk.X, pady=(14, 7))
-    status_var = tk.StringVar(value="Ready")
-    ttk.Label(main_frame, textvariable=status_var, style="Status.TLabel").pack(anchor="w")
-
-    action_frame = ttk.Frame(main_frame, style="App.TFrame")
-    action_frame.pack(fill=tk.X, pady=(14, 0))
-    action_frame.columnconfigure(2, weight=1)
-
-    ui_queue = queue.Queue()
     shutdown_event = threading.Event()
     job_cancel_event = threading.Event()
     job_running_event = threading.Event()
 
-    def post_ui(callback, *args):
-        """Queue a UI operation for the Tk main thread unless shutdown began."""
-        if not shutdown_event.is_set():
-            ui_queue.put((callback, args))
+    class UiBridge(QObject):
+        """Thread-safe signals used by synthesis workers to update Qt widgets."""
 
-    def process_ui_queue():
-        if shutdown_event.is_set():
-            return
-        try:
-            while True:
-                callback, args = ui_queue.get_nowait()
-                if shutdown_event.is_set():
-                    return
-                callback(*args)
-        except queue.Empty:
-            pass
-        if not shutdown_event.is_set():
-            root.after(40, process_ui_queue)
+        status_changed = Signal(str)
+        busy_changed = Signal(bool)
+        progress_indeterminate = Signal()
+        progress_determinate = Signal(int)
+        progress_step = Signal()
+        progress_reset = Signal()
+        info_requested = Signal(str, str)
+        error_requested = Signal(str, str)
 
-    def set_status(message):
-        post_ui(status_var.set, message)
+    bridge = UiBridge()
 
-    def set_buttons_enabled(enabled):
-        state = "normal" if enabled else "disabled"
-        for button in (open_button, clear_button, save_button, play_button):
-            button.config(state=state)
-        stop_button.config(state="disabled" if enabled else "normal")
+    class JakettsWindow(QMainWindow):
+        def closeEvent(self, event):
+            if shutdown_event.is_set():
+                event.accept()
+                return
 
-    def set_busy(enabled):
-        post_ui(set_buttons_enabled, not enabled)
+            shutdown_event.set()
+            job_cancel_event.set()
+            try:
+                sd_module = sys.modules.get("sounddevice")
+                if sd_module is not None:
+                    sd_module.stop()
+            except Exception:
+                pass
 
-    def job_cancelled():
-        return shutdown_event.is_set() or job_cancel_event.is_set()
+            event.accept()
 
-    def set_indeterminate_progress():
-        progress_bar.config(mode="indeterminate")
-        progress_bar.start(10)
+    app = QApplication.instance()
+    owns_app = app is None
+    if app is None:
+        app = QApplication(sys.argv)
 
-    def set_determinate_progress(maximum):
-        progress_bar.stop()
-        progress_bar.config(mode="determinate", maximum=maximum, value=0)
+    # Always request Qt's light color scheme, regardless of the macOS
+    # system appearance. This keeps the native platform style and accent
+    # color while preventing Jaketts from switching into dark mode.
+    style_hints = app.styleHints()
+    if hasattr(style_hints, "setColorScheme"):
+        style_hints.setColorScheme(Qt.ColorScheme.Light)
+
+    app.setApplicationName("jaketts")
+    app.setApplicationDisplayName("JakeTTS")
+    app.setOrganizationName("jaketts")
+
+    window = JakettsWindow()
+    window.setWindowTitle("JakeTTS — Text to Speech")
+    window.setMinimumSize(800, 620)
+    window.resize(960, 740)
+
+    # Deliberately avoid application-wide stylesheets here. Qt will use the
+    # platform style and system palette while keeping the app in light mode.
+
+    root = QWidget()
+    window.setCentralWidget(root)
+
+    main_layout = QVBoxLayout(root)
+    main_layout.setContentsMargins(24, 20, 24, 20)
+    main_layout.setSpacing(16)
+
+    # Header. Typography is adjusted, but colors come entirely from the
+    # current system palette.
+    header = QWidget()
+    header_layout = QHBoxLayout(header)
+    header_layout.setContentsMargins(0, 0, 0, 0)
+    header_layout.setSpacing(12)
+
+    title_column = QVBoxLayout()
+    title_column.setSpacing(2)
+    title = QLabel("JakeTTS")
+    title_font = title.font()
+    title_font.setPointSize(title_font.pointSize() + 9)
+    title_font.setBold(True)
+    title.setFont(title_font)
+
+    subtitle = QLabel("Local text-to-speech powered by Kokoro-82M")
+    subtitle.setEnabled(False)
+    title_column.addWidget(title)
+    title_column.addWidget(subtitle)
+
+    version_label = QLabel(f"Version {JAKETTS_VERSION}")
+    version_label.setEnabled(False)
+    version_label.setAlignment(
+        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+    )
+
+    header_layout.addLayout(title_column, 1)
+    header_layout.addWidget(version_label, 0, Qt.AlignmentFlag.AlignVCenter)
+    main_layout.addWidget(header)
+
+    # Native group boxes provide lightweight visual structure without
+    # hard-coded backgrounds or borders.
+    editor_card = QGroupBox()
+    editor_card_font = editor_card.font()
+    editor_card_font.setPointSize(editor_card_font.pointSize() + 3)
+    editor_card.setFont(editor_card_font)
+    editor_layout = QVBoxLayout(editor_card)
+    editor_layout.setContentsMargins(12, 14, 12, 12)
+    editor_layout.setSpacing(8)
+
+    editor_header = QHBoxLayout()
+    editor_title = QLabel("Text")
+    char_count_label = QLabel("0 characters")
+    char_count_label.setEnabled(False)
+    editor_header.addWidget(editor_title)
+    editor_header.addStretch(1)
+    editor_header.addWidget(char_count_label)
+
+    text_box = QPlainTextEdit()
+    text_box.setPlaceholderText("Type or paste text to speak…")
+    text_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+    text_box.setMinimumHeight(280)
+
+    editor_layout.addLayout(editor_header)
+    editor_layout.addWidget(text_box, 1)
+    main_layout.addWidget(editor_card, 1)
+
+    def update_character_count():
+        count = len(text_box.toPlainText())
+        suffix = "character" if count == 1 else "characters"
+        char_count_label.setText(f"{count:,} {suffix}")
+
+    text_box.textChanged.connect(update_character_count)
+
+    # Voice / speed / volume controls
+    controls_card = QGroupBox("Speech settings")
+    controls_grid = QGridLayout(controls_card)
+    controls_grid.setContentsMargins(12, 14, 12, 12)
+    controls_grid.setHorizontalSpacing(20)
+    controls_grid.setVerticalSpacing(8)
+    controls_grid.setColumnStretch(0, 4)
+    controls_grid.setColumnStretch(1, 3)
+    controls_grid.setColumnStretch(2, 3)
+
+    for column, text in enumerate(("Voice", "Speed", "Volume")):
+        label = QLabel(text)
+        controls_grid.addWidget(label, 0, column)
+
+    voice_dropdown = QComboBox()
+    voice_items = (
+        ("[en-us] af_heart", "af_heart"),
+        ("[en-us] af_sarah", "af_sarah"),
+        ("[en-us] af_bella", "af_bella"),
+        ("[en-us] af_nicole", "af_nicole"),
+        ("[en-us] af_sky", "af_sky"),
+        ("[en-us] af_alloy", "af_alloy"),
+        ("[en-us] af_aoede", "af_aoede"),
+        ("[en-us] af_jessica", "af_jessica"),
+        ("[en-us] af_river", "af_river"),
+        ("[en-us] am_adam", "am_adam"),
+        ("[en-us] am_michael", "am_michael"),
+        ("[en-us] am_echo", "am_echo"),
+        ("[en-us] am_eric", "am_eric"),
+        ("[en-us] am_fenrir", "am_fenrir"),
+        ("[en-us] am_liam", "am_liam"),
+        ("[en-us] am_onizuka", "am_onizuka"),
+        ("[en-us] am_puck", "am_puck"),
+        ("[en-us] am_santa", "am_santa"),
+        ("[en-gb] bm_george", "bm_george"),
+        ("[en-gb] bm_lewis", "bm_lewis"),
+        ("[en-gb] bf_emma", "bf_emma"),
+        ("[en-gb] bf_isabella", "bf_isabella"),
+        ("[en-gb] bm_fable", "bm_fable"),
+        ("[en-gb] bm_daniel", "bm_daniel"),
+        ("[en-gb] bf_alice", "bf_alice"),
+        ("[en-gb] bf_lily", "bf_lily"),
+        ("[es] ef_dora", "ef_dora"),
+        ("[es] em_alex", "em_alex"),
+        ("[fr] ff_sixtine", "ff_sixtine"),
+        ("[fr] fm_julien", "fm_julien"),
+        ("[hi] hf_ananya", "hf_ananya"),
+        ("[hi] hf_kavya", "hf_kavya"),
+        ("[hi] hm_anshul", "hm_anshul"),
+        ("[hi] hm_shiwani", "hm_shiwani"),
+        ("[it] if_sara", "if_sara"),
+        ("[it] im_nicola", "im_nicola"),
+        ("[ja] jf_alpha", "jf_alpha"),
+        ("[ja] jf_glowing", "jf_glowing"),
+        ("[ja] jf_neutral", "jf_neutral"),
+        ("[ja] jf_reader", "jf_reader"),
+        ("[ja] jm_kanta", "jm_kanta"),
+        ("[pt] pf_doris", "pf_doris"),
+        ("[pt] pm_ramon", "pm_ramon"),
+        ("[zh] zf_xiaobei", "zf_xiaobei"),
+        ("[zh] zf_xiaoni", "zf_xiaoni"),
+        ("[zh] zf_xiaoxiao", "zf_xiaoxiao"),
+        ("[zh] zf_xiaoyi", "zf_xiaoyi"),
+        ("[zh] zm_yunjian", "zm_yunjian"),
+        ("[zh] zm_yunxi", "zm_yunxi"),
+        ("[zh] zm_yunxia", "zm_yunxia"),
+        ("[zh] zm_yunyang", "zm_yunyang"),
+    )
+    for display, voice_id in voice_items:
+        voice_dropdown.addItem(display, voice_id)
+    voice_dropdown.setCurrentIndex(18)
+    controls_grid.addWidget(voice_dropdown, 1, 0)
+
+    speed_row = QHBoxLayout()
+    speed_slider = QSlider(Qt.Orientation.Horizontal)
+    speed_slider.setRange(50, 200)
+    speed_slider.setValue(80)
+    speed_slider.setSingleStep(1)
+    speed_spin = QDoubleSpinBox()
+    speed_spin.setRange(0.50, 2.00)
+    speed_spin.setDecimals(2)
+    speed_spin.setSingleStep(0.05)
+    speed_spin.setValue(0.80)
+    speed_spin.setSuffix("×")
+    speed_spin.setFixedWidth(86)
+    speed_row.addWidget(speed_slider, 1)
+    speed_row.addWidget(speed_spin)
+    controls_grid.addLayout(speed_row, 1, 1)
+
+    volume_row = QHBoxLayout()
+    volume_slider = QSlider(Qt.Orientation.Horizontal)
+    volume_slider.setRange(0, 100)
+    volume_slider.setValue(100)
+    volume_label = QLabel("100%")
+    volume_label.setMinimumWidth(42)
+    volume_label.setAlignment(
+        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+    )
+    volume_row.addWidget(volume_slider, 1)
+    volume_row.addWidget(volume_label)
+    controls_grid.addLayout(volume_row, 1, 2)
+
+    def sync_speed_from_slider(value):
+        speed_spin.blockSignals(True)
+        speed_spin.setValue(value / 100.0)
+        speed_spin.blockSignals(False)
+
+    def sync_speed_from_spin(value):
+        speed_slider.blockSignals(True)
+        speed_slider.setValue(round(value * 100))
+        speed_slider.blockSignals(False)
+
+    speed_slider.valueChanged.connect(sync_speed_from_slider)
+    speed_spin.valueChanged.connect(sync_speed_from_spin)
+    volume_slider.valueChanged.connect(lambda value: volume_label.setText(f"{value}%"))
+
+    main_layout.addWidget(controls_card)
+
+    # Status and progress use native widgets. The status text lives in the
+    # QMainWindow status bar, which also follows the system palette.
+    progress_bar = QProgressBar()
+    progress_bar.setRange(0, 1)
+    progress_bar.setValue(0)
+    progress_bar.setTextVisible(False)
+    main_layout.addWidget(progress_bar)
+
+    status_bar = window.statusBar()
+    status_bar.showMessage("Ready")
+
+    # Action buttons. Keeping these text-only lets macOS draw the standard
+    # button chrome; the default Speak button receives the system accent.
+    actions = QHBoxLayout()
+    actions.setSpacing(8)
+
+    def make_button(text):
+        return QPushButton(text)
+
+    open_button = make_button("Open Text File…")
+    clear_button = make_button("Clear")
+    stop_button = make_button("Stop")
+    save_button = make_button("Save WAV…")
+    play_button = make_button("Speak")
+    play_button.setDefault(True)
+    stop_button.setEnabled(False)
+
+    actions.addWidget(open_button)
+    actions.addWidget(clear_button)
+    actions.addStretch(1)
+    actions.addWidget(stop_button)
+    actions.addWidget(save_button)
+    actions.addWidget(play_button)
+    main_layout.addLayout(actions)
+
+    def set_busy_ui(busy):
+        enabled = not busy
+        for widget in (
+            open_button,
+            clear_button,
+            save_button,
+            play_button,
+            voice_dropdown,
+            speed_slider,
+            speed_spin,
+            volume_slider,
+        ):
+            widget.setEnabled(enabled)
+        stop_button.setEnabled(busy)
+
+    def set_progress_indeterminate():
+        progress_bar.setRange(0, 0)
+
+    def set_progress_determinate(maximum):
+        progress_bar.setRange(0, max(1, maximum))
+        progress_bar.setValue(0)
 
     def step_progress():
-        progress_bar.step(1)
+        if progress_bar.maximum() > 0:
+            progress_bar.setValue(min(progress_bar.value() + 1, progress_bar.maximum()))
 
     def reset_progress():
-        progress_bar.stop()
-        progress_bar.config(mode="determinate", value=0)
+        progress_bar.setRange(0, 1)
+        progress_bar.setValue(0)
+
+    bridge.status_changed.connect(status_bar.showMessage)
+    bridge.busy_changed.connect(set_busy_ui)
+    bridge.progress_indeterminate.connect(set_progress_indeterminate)
+    bridge.progress_determinate.connect(set_progress_determinate)
+    bridge.progress_step.connect(step_progress)
+    bridge.progress_reset.connect(reset_progress)
+    bridge.info_requested.connect(
+        lambda title, message: QMessageBox.information(window, title, message)
+    )
+    bridge.error_requested.connect(
+        lambda title, message: QMessageBox.critical(window, title, message)
+    )
 
     def get_cached_pipeline(lang_code):
         nonlocal shared_model
@@ -657,71 +658,78 @@ def launch_desktop_gui():
             return audio_array
         return np.clip(audio_array * volume_level, -1.0, 1.0)
 
+    def job_cancelled():
+        return shutdown_event.is_set() or job_cancel_event.is_set()
+
     def warm_speech_engine():
         """Warm the default Kokoro model in the background after GUI launch."""
         if shutdown_event.is_set():
             return
 
-        set_status("Warming speech engine…")
+        bridge.status_changed.emit("Warming speech engine…")
         try:
-            # The default voice is British English, so warming the `b` pipeline
-            # loads the shared Kokoro model most users will need first. Other
-            # language pipelines can then reuse that already-loaded model.
             get_cached_pipeline("b")
         except Exception:
-            # Warm-up is opportunistic. If it fails, the normal Play/Save path
-            # will surface the real error to the user when synthesis is requested.
+            # Warm-up is opportunistic. Play/Save will surface real failures.
             pass
         finally:
             if not shutdown_event.is_set() and not job_running_event.is_set():
-                set_status("Ready")
+                bridge.status_changed.emit("Ready")
 
     def open_text_file():
-        file_path = filedialog.askopenfilename(
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+        file_path, _ = QFileDialog.getOpenFileName(
+            window,
+            "Open text file",
+            "",
+            "Text Files (*.txt);;All Files (*)",
         )
         if not file_path:
             return
+
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            text_box.delete("1.0", tk.END)
-            text_box.insert("1.0", content)
-            text_box.edit_modified(True)
-            update_character_count()
-            status_var.set(f"Loaded {os.path.basename(file_path)}")
-        except Exception as e:
-            messagebox.showerror("Open file failed", f"Could not read the text file:\n\n{e}")
+            with open(file_path, "r", encoding="utf-8") as handle:
+                text_box.setPlainText(handle.read())
+            status_bar.showMessage(f"Loaded {os.path.basename(file_path)}")
+        except Exception as exc:
+            QMessageBox.critical(
+                window,
+                "Open file failed",
+                f"Could not read the text file:\n\n{exc}",
+            )
 
     def clear_text():
-        text_box.delete("1.0", tk.END)
-        text_box.edit_modified(True)
-        update_character_count()
-        status_var.set("Ready")
-        text_box.focus_set()
+        text_box.clear()
+        status_bar.showMessage("Ready")
+        text_box.setFocus()
 
     def run_synthesis(action_type):
-        input_text = text_box.get("1.0", "end-1c").strip()
+        input_text = text_box.toPlainText().strip()
         if not input_text:
-            messagebox.showwarning("Nothing to speak", "Enter some text or open a text file first.")
+            QMessageBox.warning(
+                window,
+                "Nothing to speak",
+                "Enter some text or open a text file first.",
+            )
             return
 
         save_path = None
         if action_type == "save":
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".wav",
-                filetypes=[("WAV Audio", "*.wav")],
-                initialfile="output.wav",
+            save_path, _ = QFileDialog.getSaveFileName(
+                window,
+                "Save WAV",
+                "output.wav",
+                "WAV Audio (*.wav)",
             )
             if not save_path:
-                status_var.set("Save cancelled")
+                status_bar.showMessage("Save cancelled")
                 return
+            if not save_path.lower().endswith(".wav"):
+                save_path += ".wav"
 
-        voice = voice_var.get().split()[-1]
+        voice = voice_dropdown.currentData()
         lang_code = get_language_code(voice)
-        commit_speed()
-        speed = speed_var.get()
-        volume_level = volume_var.get() / 100.0
+        speed = speed_spin.value()
+        volume_level = volume_slider.value() / 100.0
         job_cancel_event.clear()
         job_running_event.set()
 
@@ -730,11 +738,14 @@ def launch_desktop_gui():
                 if job_cancelled():
                     return
 
-                set_busy(True)
-                set_status("Loading speech engine…")
-                post_ui(set_indeterminate_progress)
+                bridge.busy_changed.emit(True)
+                bridge.status_changed.emit("Loading speech engine…")
+                bridge.progress_indeterminate.emit()
 
-                ensure_language_resources(lang_code, status_callback=set_status)
+                ensure_language_resources(
+                    lang_code,
+                    status_callback=bridge.status_changed.emit,
+                )
                 if job_cancelled():
                     return
 
@@ -742,10 +753,14 @@ def launch_desktop_gui():
                 if job_cancelled():
                     return
 
-                paragraphs = [p for p in input_text.split("\n") if p.strip()]
-                total_p = len(paragraphs) if paragraphs else 1
-                post_ui(set_determinate_progress, total_p)
-                set_status(f"Generating with {voice}…")
+                paragraphs = [
+                    p.strip() for p in re.split(r"\n+", input_text) if p.strip()
+                ]
+                if not paragraphs:
+                    paragraphs = [input_text]
+
+                bridge.progress_determinate.emit(len(paragraphs))
+                bridge.status_changed.emit(f"Generating with {voice}…")
 
                 if action_type == "play":
                     import sounddevice as sd
@@ -758,13 +773,16 @@ def launch_desktop_gui():
                             if job_cancelled():
                                 return
                             if audio is not None:
-                                sd.play(apply_volume(audio, volume_level), samplerate=24000)
+                                sd.play(
+                                    apply_volume(audio, volume_level), samplerate=24000
+                                )
                                 sd.wait()
                                 if job_cancelled():
                                     return
-                        post_ui(step_progress)
+                        bridge.progress_step.emit()
+
                     if not job_cancelled():
-                        set_status("Playback finished")
+                        bridge.status_changed.emit("Playback finished")
                 else:
                     audio_chunks = []
                     for para in paragraphs:
@@ -776,7 +794,7 @@ def launch_desktop_gui():
                                 return
                             if audio is not None:
                                 audio_chunks.append(apply_volume(audio, volume_level))
-                        post_ui(step_progress)
+                        bridge.progress_step.emit()
 
                     if not audio_chunks:
                         raise RuntimeError("Generation produced no audio data.")
@@ -786,35 +804,33 @@ def launch_desktop_gui():
 
                     combined = np.concatenate(audio_chunks)
                     sf.write(save_path, combined, 24000)
-                    set_status(f"Saved {os.path.basename(save_path)}")
-                    post_ui(
-                        messagebox.showinfo,
+                    bridge.status_changed.emit(f"Saved {os.path.basename(save_path)}")
+                    bridge.info_requested.emit(
                         "Saved",
                         f"Audio exported successfully to:\n\n{save_path}",
                     )
 
-            except Exception as e:
+            except Exception as exc:
                 if not job_cancelled():
-                    set_status("Synthesis failed")
-                    post_ui(messagebox.showerror, "Synthesis failed", str(e))
+                    bridge.status_changed.emit("Synthesis failed")
+                    bridge.error_requested.emit("Synthesis failed", str(exc))
             finally:
                 job_running_event.clear()
                 if not shutdown_event.is_set():
                     was_stopped = job_cancel_event.is_set()
-                    post_ui(reset_progress)
-                    set_busy(False)
+                    bridge.progress_reset.emit()
+                    bridge.busy_changed.emit(False)
                     if was_stopped:
-                        set_status("Stopped")
+                        bridge.status_changed.emit("Stopped")
 
         threading.Thread(target=worker, daemon=True).start()
 
     def stop_current_job():
-        """Stop current playback/generation without closing the GUI."""
         if job_cancel_event.is_set():
             return
 
         job_cancel_event.set()
-        status_var.set("Stopping…")
+        status_bar.showMessage("Stopping…")
         try:
             sd_module = sys.modules.get("sounddevice")
             if sd_module is not None:
@@ -822,69 +838,27 @@ def launch_desktop_gui():
         except Exception:
             pass
 
-    open_button = ttk.Button(action_frame, text="Open text file", style="Secondary.TButton", command=open_text_file)
-    open_button.grid(row=0, column=0, sticky="w")
-    clear_button = ttk.Button(action_frame, text="Clear", style="Secondary.TButton", command=clear_text)
-    clear_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
-    stop_button = ttk.Button(action_frame, text="Stop", style="Secondary.TButton", command=stop_current_job, state="disabled")
-    stop_button.grid(row=0, column=3, sticky="e", padx=(0, 8))
-    save_button = ttk.Button(action_frame, text="Save WAV", style="Secondary.TButton", command=lambda: run_synthesis("save"))
-    save_button.grid(row=0, column=4, sticky="e", padx=(0, 8))
-    play_button = ttk.Button(action_frame, text="Play speech", style="Primary.TButton", command=lambda: run_synthesis("play"))
-    play_button.grid(row=0, column=5, sticky="e")
+    open_button.clicked.connect(open_text_file)
+    clear_button.clicked.connect(clear_text)
+    stop_button.clicked.connect(stop_current_job)
+    save_button.clicked.connect(lambda: run_synthesis("save"))
+    play_button.clicked.connect(lambda: run_synthesis("play"))
 
-    def close_gui():
-        """Stop active playback/work and close without worker/Tk races."""
-        if shutdown_event.is_set():
-            return
+    # Center the initial window on the active screen.
+    screen = app.primaryScreen()
+    if screen is not None:
+        available = screen.availableGeometry()
+        frame = window.frameGeometry()
+        frame.moveCenter(available.center())
+        window.move(frame.topLeft())
 
-        shutdown_event.set()
-        job_cancel_event.set()
-        try:
-            sd_module = sys.modules.get("sounddevice")
-            if sd_module is not None:
-                sd_module.stop()
-        except Exception:
-            pass
-
-        # Drop queued callbacks so no worker operation can touch widgets after
-        # the Tk interpreter has been destroyed. The worker is a daemon thread,
-        # so the detached GUI process can exit even if Kokoro is between chunks.
-        try:
-            while True:
-                ui_queue.get_nowait()
-        except queue.Empty:
-            pass
-
-        root.destroy()
-
-    root.protocol("WM_DELETE_WINDOW", close_gui)
-
-    # Build the complete layout before choosing the window size. This prevents
-    # lower controls from being clipped by a fixed geometry that is smaller than
-    # the widgets' requested size. The resulting requested size is also the hard
-    # minimum, so resizing can never hide required controls.
-    root.update_idletasks()
-    requested_width = root.winfo_reqwidth()
-    requested_height = root.winfo_reqheight()
-
-    minimum_width = max(requested_width, 820)
-    minimum_height = max(requested_height, 680)
-    root.minsize(minimum_width, minimum_height)
-
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    initial_width = max(minimum_width, min(1040, screen_width - 80))
-    initial_height = max(minimum_height, min(820, screen_height - 80))
-
-    x = max(0, (screen_width - initial_width) // 2)
-    y = max(0, (screen_height - initial_height) // 3)
-    root.geometry(f"{initial_width}x{initial_height}+{x}+{y}")
-
-    text_box.focus_set()
-    process_ui_queue()
+    window.show()
+    text_box.setFocus()
     threading.Thread(target=warm_speech_engine, daemon=True).start()
-    root.mainloop()
+
+    if owns_app:
+        app.exec()
+
 
 def main():
     if len(sys.argv) == 1:
