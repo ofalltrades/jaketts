@@ -40,7 +40,6 @@ setup(
         "Environment :: Console",
         "Environment :: MacOS X",
         "Intended Audience :: End Users/Desktop",
-        "License :: OSI Approved :: MIT License",
         "Operating System :: MacOS",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",

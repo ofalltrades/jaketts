@@ -14,7 +14,7 @@ The default voice is `bm_george`.
 - 🗣️ Optionless voice selection
 - ⏩ Adjustable speech speed
 - 🌍 Multiple Kokoro language/voice families
-- 🖥️ Native Tkinter GUI when launched without arguments
+- 🖥️ Native Tkinter GUI with voice, speed, and volume controls
 - 🔒 Local synthesis with no API key required
 - ⚡ `jaketts` and `jtts` command aliases
 - 🇯🇵 Automatic one-time Japanese dictionary setup when a Japanese voice is first used
@@ -22,6 +22,8 @@ The default voice is `bm_george`.
 ## Requirements
 
 `jaketts` currently supports Python 3.10 through Python 3.12.
+
+On Apple Silicon, `jaketts` automatically allows PyTorch to use the MPS backend when available, with CPU fallback for unsupported operations. Heavy Kokoro/PyTorch imports are deferred until synthesis actually starts, so lightweight CLI operations and GUI launch remain responsive.
 
 ## Installation from PyPI
 
@@ -87,6 +89,8 @@ or:
 ```bash
 jtts
 ```
+
+The GUI launches in its own process, so the terminal prompt is returned immediately while the desktop window remains open.
 
 ### Speak text using the default voice
 
