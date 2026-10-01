@@ -6,7 +6,7 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="jaketts",
-    version="1.0.8",
+    version="1.0.9",
     description="Jake's local CLI text-to-speech tool powered by Kokoro-82M",
     long_description=README,
     long_description_content_type="text/markdown",

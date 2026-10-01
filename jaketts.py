@@ -268,6 +268,7 @@ def launch_desktop_gui():
 
     try:
         from PySide6.QtCore import QObject, Qt, Signal
+        from PySide6.QtGui import QColor, QPalette
         from PySide6.QtWidgets import (
             QApplication,
             QComboBox,
@@ -345,6 +346,16 @@ def launch_desktop_gui():
     style_hints = app.styleHints()
     if hasattr(style_hints, "setColorScheme"):
         style_hints.setColorScheme(Qt.ColorScheme.Light)
+
+    # macOS can return different light palettes depending on the Python host.
+    # Normalize the neutral surface colors while preserving the native macOS
+    # widget style, accent color, text colors, and control rendering.
+    palette = app.palette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(236, 236, 236))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(245, 245, 245))
+    palette.setColor(QPalette.ColorRole.Button, QColor(236, 236, 236))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(0, 0, 0, 63))
+    app.setPalette(palette)
 
     app.setApplicationName("jaketts")
     app.setApplicationDisplayName("JakeTTS")
