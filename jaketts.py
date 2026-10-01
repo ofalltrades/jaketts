@@ -381,37 +381,151 @@ def launch_desktop_gui():
     root.mainloop()
 
 
-# --- PRIMARY COMMAND LINE INTERFACE ROUTING ENGINE ---
 def main():
     if len(sys.argv) == 1:
         launch_desktop_gui()
         sys.exit(0)
 
-    # --- Smart Whitelist Voice Detection Intercept ---
-    # Default fallback voice remains bm_george
-    active_voice = "bm_george"
+    # --- THE ADVANCED COMMAND REARRANGER INTERCEPT ---
+    raw_args = sys.argv[1:]
 
-    # Scan the terminal inputs to check if any string matches a known voice ID
-    for arg in sys.argv[1:]:
-        if arg.lower() in VOICE_WHITELIST:
-            active_voice = arg.lower()
-            sys.argv.remove(arg)  # Safely strip it out so argparse doesn't break
-            break
+    # Preserve -v / --version exactly as requested.
+    if "-v" in raw_args or "--version" in raw_args:
+        print(f"jaketts {PYTHON_VERSION}")
+        sys.exit(0)
 
-    # Advanced Input Intercept for terminal shorthand commands
-    if len(sys.argv) == 3 and sys.argv[1] in ["-o", "--output"]:
-        potential_file = sys.argv[2]
-        if os.path.isfile(potential_file) and not potential_file.lower().endswith(
-            ".wav"
-        ):
-            sys.argv = [sys.argv[0], "-o", "output.wav", potential_file]
+    detected_voice = "bm_george"
+    voice_found = False
 
-    # --- Modernized Argparse Configuration ---
+    output_requested = False
+    output_file = None
+
+    detected_speed = "1.0"
+    speed_found = False
+
+    text_tokens = []
+
+    i = 0
+    while i < len(raw_args):
+        arg = raw_args[i]
+        arg_lower = arg.lower()
+
+        # ------------------------------------------------------------
+        # Voice ID
+        # ------------------------------------------------------------
+        if arg_lower in VOICE_WHITELIST and not voice_found:
+            detected_voice = arg_lower
+            voice_found = True
+            i += 1
+            continue
+
+        # ------------------------------------------------------------
+        # Output
+        # ------------------------------------------------------------
+        if arg in ("-o", "--output"):
+            output_requested = True
+
+            if i + 1 < len(raw_args):
+                candidate = raw_args[i + 1]
+
+                # Only consume the following token as an output target
+                # when it clearly looks like a WAV filename.
+                if candidate.lower().endswith(".wav"):
+                    output_file = candidate
+                    i += 2
+                    continue
+
+            # Bare -o / --output defaults to output.wav.
+            # Crucially, the following token remains available for
+            # voice/text detection.
+            output_file = "output.wav"
+            i += 1
+            continue
+
+        # Explicit assignment syntax is unambiguous.
+        if arg.startswith("--output="):
+            output_requested = True
+            value = arg.split("=", 1)[1].strip()
+            output_file = value or "output.wav"
+            i += 1
+            continue
+
+        if arg.startswith("-o="):
+            output_requested = True
+            value = arg.split("=", 1)[1].strip()
+            output_file = value or "output.wav"
+            i += 1
+            continue
+
+        # ------------------------------------------------------------
+        # Speed
+        # ------------------------------------------------------------
+        if arg in ("-s", "--speed"):
+            if i + 1 < len(raw_args):
+                candidate = raw_args[i + 1]
+
+                if candidate.lower() not in VOICE_WHITELIST and candidate not in (
+                    "-o",
+                    "--output",
+                    "-s",
+                    "--speed",
+                    "-v",
+                    "--version",
+                ):
+                    detected_speed = candidate
+                    speed_found = True
+                    i += 2
+                    continue
+
+            # Let argparse give a useful float conversion error.
+            detected_speed = "__missing_speed__"
+            speed_found = True
+            i += 1
+            continue
+
+        if arg.startswith("--speed="):
+            detected_speed = arg.split("=", 1)[1]
+            speed_found = True
+            i += 1
+            continue
+
+        if arg.startswith("-s="):
+            detected_speed = arg.split("=", 1)[1]
+            speed_found = True
+            i += 1
+            continue
+
+        # Everything else becomes text.
+        text_tokens.append(arg)
+        i += 1
+
+    text_content = " ".join(text_tokens)
+
+    # ------------------------------------------------------------
+    # Reconstruct argv into the canonical order argparse expects.
+    # ------------------------------------------------------------
+    new_argv = [sys.argv[0]]
+
+    if output_requested:
+        new_argv.extend(["-o", output_file or "output.wav"])
+
+    if speed_found:
+        new_argv.extend(["-s", detected_speed])
+
+    new_argv.append(detected_voice)
+
+    if text_content:
+        new_argv.append(text_content)
+
+    sys.argv = new_argv
+
+    # ------------------------------------------------------------
+    # ARGPARSE ENGINE
+    # ------------------------------------------------------------
     parser = argparse.ArgumentParser(
         description="🔊 Jake's Smart Text-to-Speech CLI utility powered by Kokoro."
     )
 
-    # -v and --version are now the undisputed version checkers
     parser.add_argument(
         "-v",
         "--version",
@@ -423,24 +537,29 @@ def main():
     parser.add_argument(
         "-o",
         "--output",
-        nargs="?",
-        const="output.wav",
         default=None,
         help="Output filename.",
     )
 
     parser.add_argument(
-        "-s", "--speed", type=float, default=1.0, help="Vocal speed modifier parameter."
+        "-s",
+        "--speed",
+        type=float,
+        default=1.0,
+        help="Speed multiplier.",
     )
 
     parser.add_argument(
-        "text_input", help="The text string or path to a .txt file input source."
+        "voice",
+        help="The voice profile ID.",
+    )
+
+    parser.add_argument(
+        "text_input",
+        help="The text string or path to a .txt file.",
     )
 
     args = parser.parse_args()
-
-    # Re-inject our smart-detected voice back into the args namespace
-    args.voice = active_voice
 
     final_text = args.text_input
     if os.path.isfile(args.text_input):
