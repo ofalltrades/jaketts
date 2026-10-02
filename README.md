@@ -8,13 +8,13 @@ The default voice is `bm_george`.
 
 **JakeTTS 1.0.10 is the final release of the open-source application.** The JakeTTS source code remains available under 0BSD, but the project is no longer under active feature development.
 
+<img width="1926" height="1556" alt="jttsui" src="https://github.com/user-attachments/assets/a76369e4-c193-42b3-9c34-d774bad38f50" />
+
 ## Project status
 
 JakeTTS 1.0.10 is the final planned release. No new features, enhancement requests, or request-driven changes are planned. The repository will remain available, but JakeTTS is no longer under active development.
 
 If you use the free/open-source JakeTTS and want to extend it, change its behavior, add platforms, or maintain it further, **fork the repository and continue from your own fork**. Defects may be addressed at the maintainer's discretion, but no ongoing maintenance or support is promised.
-
-<img width="1926" height="1556" alt="jttsui" src="https://github.com/user-attachments/assets/a76369e4-c193-42b3-9c34-d774bad38f50" />
 
 ## Features
 
