@@ -1,4 +1,4 @@
-# 🔊 jaketts
+# 🔊 JakeTTS
 
 `jaketts` — also available as the shorter `jtts` command — is a local text-to-speech utility for macOS powered by the open-weight **Kokoro-82M** model.
 
@@ -6,111 +6,129 @@ It can play synthesized speech directly through your speakers, save WAV files, r
 
 The default voice is `bm_george`.
 
+**JakeTTS 1.0.10 is the final feature release of the open-source application.** The project remains available as a small, permissively licensed local TTS tool; future product development continues separately.
+
 ## Features
 
 - 🔊 Direct speaker playback
 - 💾 WAV file export
 - 📖 Plain-text file input
-- 🗣️ Optionless voice selection
+- 🗣️ Voice selection from the installed Kokoro voice bundle
 - ⏩ Adjustable speech speed with a 0.80× default
-- 🌍 Multiple Kokoro language/voice families
+- 🌍 Kokoro voice families for English, Spanish, French, Hindi, Italian, Japanese, Portuguese, and Chinese
 - 🖥️ Qt desktop GUI with voice, exact speed, volume, and Stop controls
-- 🔒 Local synthesis with no API key required
+- 🔒 Fully local synthesis after installation — no model or voice downloads at runtime
 - ⚡ `jaketts` and `jtts` command aliases
-- 🇯🇵 Automatic one-time Japanese dictionary setup when a Japanese voice is first used
+- 🇯🇵 Lightweight local Japanese support using UniDic Lite instead of a first-run full-UniDic download
+- 🧠 Kokoro ONNX FP16 inference instead of the much larger PyTorch runtime
+
+## Runtime assets
+
+JakeTTS 1.0.10 uses two local Kokoro assets:
+
+- `kokoro-v1.0.fp16.onnx`
+- `voices-v1.0.bin`
+
+JakeTTS never downloads these files while synthesizing speech. It looks for them in this order:
+
+1. the directory named by `JAKETTS_ASSET_DIR`
+2. an `assets` directory beside `jaketts.py`
+3. `<python-prefix>/share/jaketts` (used by the Homebrew package)
+
+Homebrew installs the assets automatically. Source/PyPI users can download them once during setup:
+
+```bash
+mkdir -p assets
+
+curl -L --fail \
+  -o assets/kokoro-v1.0.fp16.onnx \
+  https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.fp16.onnx
+
+curl -L --fail \
+  -o assets/voices-v1.0.bin \
+  https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin
+```
+
+Once dependencies and these two assets are installed, normal JakeTTS use does not require an internet connection.
 
 ## Requirements
 
-`jaketts` currently supports Python 3.10 through Python 3.12.
+JakeTTS supports Python 3.10 through Python 3.12.
 
-On Apple Silicon, `jaketts` automatically allows PyTorch to use the MPS backend when available, with CPU fallback for unsupported operations. Heavy Kokoro/PyTorch imports remain deferred on CLI fast paths. The desktop GUI opens immediately and warms the default Kokoro model in a background thread so the first Play action is usually ready sooner.
+Version 1.0.10 uses `kokoro-onnx` for inference. Japanese and Chinese use lightweight local Misaki G2P paths before the phonemes are passed to the same ONNX model. Other supported languages use the local eSpeak-based phonemizer included in the installed runtime.
 
 ## Installation with Homebrew
 
-On Apple Silicon Macs running macOS 14 Sonoma or newer, install `jaketts` from the Homebrew tap:
+On Apple Silicon Macs running macOS 14 Sonoma or newer:
 
-    brew install ofalltrades/tap/jaketts
+```bash
+brew install ofalltrades/tap/jaketts
+```
 
-That installs both command aliases. Verify the installation with:
+That installs the Python runtime, the local FP16 Kokoro model, the 54-voice v1.0 bundle, and both command aliases.
 
-    jtts -v
+Verify the installation:
+
+```bash
+jtts -v
+```
 
 Launch the desktop GUI:
 
-    jtts
+```bash
+jtts
+```
 
-Or synthesize speech directly from the terminal:
+Or synthesize from the terminal:
 
-    jtts "Hello from Jaketts"
+```bash
+jtts "Hello from JakeTTS"
+```
 
 The Homebrew formula is maintained at [ofalltrades/homebrew-tap](https://github.com/ofalltrades/homebrew-tap).
 
 ## Installation from PyPI
 
-Install the published package into your preferred Python environment:
+Install the Python code and dependencies:
 
 ```bash
 python -m pip install jaketts
 ```
 
-That installs both commands:
+Then place the two runtime assets described above in a local directory and either put them in an `assets` directory beside a source checkout or point JakeTTS at them:
+
+```bash
+export JAKETTS_ASSET_DIR="$HOME/.local/share/jaketts"
+```
+
+Both commands are installed:
 
 ```bash
 jaketts --version
 jtts --version
 ```
 
-Japanese support uses the full UniDic dictionary. The required Python packages are installed by pip, and the first time you select a Japanese voice, `jaketts` automatically downloads the UniDic dictionary into the same Python environment. This is a one-time download of roughly 526 MB.
-
 ## Installation from GitHub
-
-Clone the repository, enter it, and install it in editable mode:
 
 ```bash
 git clone https://github.com/ofalltrades/jaketts.git
 cd jaketts
-python -m pip install -e .
-```
-
-Editable mode means changes to `jaketts.py` are used immediately without reinstalling the package. Re-run `python -m pip install -e .` after changing package metadata or dependencies.
-
-If you prefer an isolated virtual environment:
-
-```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 ```
 
-To update a source checkout later:
-
-```bash
-git pull --ff-only origin main
-```
-
-If the update changed dependencies or package metadata, follow it with:
-
-```bash
-python -m pip install -e .
-```
+Download the runtime assets into `./assets` using the commands in **Runtime assets** above. Editable mode means changes to `jaketts.py` are used immediately without reinstalling the package.
 
 ## Usage
 
 ### Launch the desktop GUI
 
-Run either command with no arguments:
-
-```bash
-jaketts
-```
-
-or:
-
 ```bash
 jtts
 ```
 
-The GUI launches in its own process, so the terminal prompt is returned immediately while the desktop window remains open. It begins warming the default speech engine in the background while you enter text. The speed control combines a slider with a typeable exact-value field, and Stop immediately ends the current playback/generation job without closing the window.
+The GUI launches in its own process, so the terminal prompt returns immediately while the desktop window remains open. It warms the local ONNX speech engine in a background thread.
 
 ### Speak text using the default voice
 
@@ -120,73 +138,49 @@ jtts "Three Rings for the Elven-kings under the sky."
 
 ### Choose a voice
 
-Voice IDs are passed directly without a `--voice` flag:
+Voice IDs can be placed before or after the text:
 
 ```bash
 jtts af_sarah "Hello from an American female voice."
+jtts "This uses Adam." am_adam
 ```
 
-```bash
-jtts am_adam "Hello from an American male voice."
-```
+If no installed voice ID is supplied, `bm_george` is used.
 
-The voice can appear before or after the text:
+### Japanese and Chinese
 
-```bash
-jtts "This also uses Adam." am_adam
-```
-
-If no recognized voice ID is supplied, `bm_george` is used.
-
-### Japanese voices
-
-Japanese voices work without a separate setup command:
+Japanese and Chinese are phonemized locally and then synthesized by Kokoro ONNX:
 
 ```bash
 jtts jf_alpha "こんにちは世界"
+jtts zf_xiaobei "清晨的阳光从窗户照了进来。"
 ```
 
-On the first Japanese invocation only, `jaketts` downloads the full UniDic dictionary automatically. Later Japanese invocations reuse the downloaded dictionary.
+There is no first-run dictionary or model download.
 
 ### Read a text file
 
 ```bash
 jtts story.txt
-```
-
-With an explicit voice:
-
-```bash
 jtts am_adam story.txt
 ```
 
-### Save to the default output file
+### Save WAV audio
 
-A bare `-o` or `--output` saves to `output.wav`:
+A bare `-o` saves to `output.wav`:
 
 ```bash
 jtts -o "Save this narration."
 ```
 
-This also works when a voice immediately follows `-o`:
-
-```bash
-jtts -o am_adam "Save this using Adam."
-```
-
-### Save to a custom WAV file
+Specify a filename:
 
 ```bash
 jtts -o narration.wav "Save this narration."
-```
-
-or:
-
-```bash
 jtts --output narration.wav am_adam "Save this narration."
 ```
 
-Equals syntax is also supported:
+Equals syntax is supported:
 
 ```bash
 jtts --output=narration.wav "Save this narration."
@@ -194,25 +188,17 @@ jtts --output=narration.wav "Save this narration."
 
 ### Change speech speed
 
-The default speed is `0.8` (shown as `0.80×` in the GUI).
+The default is `0.8` (shown as `0.80×` in the GUI):
 
 ```bash
 jtts -s 1.25 "Speak this a little faster."
-```
-
-```bash
 jtts --speed 0.9 am_adam "Speak this a little slower."
-```
-
-Equals syntax is supported as well:
-
-```bash
 jtts --speed=1.1 "Slightly faster speech."
 ```
 
-### Flexible argument ordering
+Kokoro ONNX exposes sentence and clause pauses independently from spoken-word speed. JakeTTS 1.0.10 uses conservative fixed pause values internally, leaving a clean foundation for more advanced prose-aware pacing in downstream projects.
 
-The CLI normalizes recognized options and voice IDs before handing them to `argparse`, so these layouts are valid:
+### Flexible argument ordering
 
 ```bash
 jtts am_adam "Hello" -o hello.wav
@@ -223,21 +209,16 @@ jtts am_adam "Hello" -o
 
 ### Show the installed version
 
-`-v` is the version flag:
-
 ```bash
 jtts -v
-```
-
-or:
-
-```bash
 jtts --version
 ```
 
 ## Voice reference
 
-Some commonly useful Kokoro voices include:
+The voice menu and CLI voice recognition are read directly from the installed `voices-v1.0.bin` bundle rather than from a duplicated hard-coded list. The current bundle contains 54 voices.
+
+Some useful examples include:
 
 | Voice ID | Family | Description |
 | --- | --- | --- |
@@ -247,44 +228,17 @@ Some commonly useful Kokoro voices include:
 | `af_heart` | American English | Expressive female voice |
 | `af_sarah` | American English | Female American voice |
 | `am_adam` | American English | Male American voice |
-| `ff_sixtine` | French | Female French voice |
+| `ff_siwis` | French | Female French voice |
 | `jf_alpha` | Japanese | Female Japanese voice |
-| `pf_doris` | Portuguese | Female Portuguese voice |
+| `pf_dora` | Portuguese | Female Portuguese voice |
 | `zf_xiaobei` | Chinese | Female Chinese voice |
 
-The complete supported voice list is defined in `VOICE_WHITELIST` inside `jaketts.py` and is also available in the desktop GUI.
+## Privacy / offline behavior
 
-## Testing
-
-The repository includes an integration test matrix covering output routing, flexible argument ordering, speed options, version flags, text-file input, default voice behavior, and multilingual voice routing.
-
-Run it with:
-
-```bash
-./test_app.sh
-```
-
-The test script creates temporary WAV/text artifacts and removes them automatically when the test run exits.
-
-## Development
-
-Install the clone in editable mode:
-
-```bash
-python -m pip install -e .
-```
-
-The package version is defined in `setup.py`. `jaketts.py` reads the installed package metadata using `importlib.metadata`, so the runtime version output does not need a second hardcoded version string.
-
-Before building a release:
-
-```bash
-./test_app.sh
-rm -rf dist build *.egg-info
-python -m build
-python -m twine check dist/*
-```
+JakeTTS does not use a hosted TTS API and does not fetch model or voice files during normal operation. To verify an installation, disconnect networking and synthesize or export a WAV file; all speech inference should continue to work locally.
 
 ## License
 
-See `LICENSE` for the project's license terms.
+JakeTTS itself is released under the **BSD Zero Clause License (0BSD)**. You may use, copy, modify, distribute, or sell the JakeTTS code for any purpose, with or without fee, subject to the license text in `LICENSE`.
+
+Third-party dependencies and model assets retain their own licenses.

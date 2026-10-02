@@ -1,191 +1,218 @@
 #!/usr/bin/env python3
-import sys
-import os
 import argparse
+import os
 import re
 import subprocess
+import sys
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
-# Allow Kokoro/PyTorch to use Apple Silicon MPS when available while
-# falling back to CPU for unsupported operations. Existing user settings win.
-os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-
-# Silence torch, tokenizer, and huggingface framework warnings completely
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 import warnings
 
 warnings.filterwarnings("ignore")
 
-VOICE_WHITELIST = {
-    "af_heart",
-    "af_sarah",
-    "af_bella",
-    "af_nicole",
-    "af_sky",
-    "af_alloy",
-    "af_aoede",
-    "af_jessica",
-    "af_river",
-    "am_adam",
-    "am_michael",
-    "am_echo",
-    "am_eric",
-    "am_fenrir",
-    "am_liam",
-    "am_onizuka",
-    "am_puck",
-    "am_santa",
-    "bm_george",
-    "bm_lewis",
-    "bf_emma",
-    "bf_isabella",
-    "bm_fable",
-    "bm_daniel",
-    "bf_alice",
-    "bf_lily",
-    "ef_dora",
-    "em_alex",
-    "ff_sixtine",
-    "fm_julien",
-    "hf_ananya",
-    "hf_kavya",
-    "hm_anshul",
-    "hm_shiwani",
-    "if_sara",
-    "im_nicola",
-    "jf_alpha",
-    "jf_glowing",
-    "jf_neutral",
-    "jf_reader",
-    "jm_kanta",
-    "pf_doris",
-    "pm_ramon",
-    "zf_xiaobei",
-    "zf_xiaoni",
-    "zf_xiaoxiao",
-    "zf_xiaoyi",
-    "zm_yunjian",
-    "zm_yunxi",
-    "zm_yunxia",
-    "zm_yunyang",
+DEFAULT_VOICE = "bm_george"
+MODEL_FILENAME = "kokoro-v1.0.fp16.onnx"
+VOICES_FILENAME = "voices-v1.0.bin"
+KOKORO_SAMPLE_RATE = 24000
+DEFAULT_SENTENCE_PAUSE = 0.25
+DEFAULT_CLAUSE_PAUSE = 0.10
+DEFAULT_PARAGRAPH_PAUSE = 0.45
+
+LANGUAGE_BY_PREFIX = {
+    "a": "en-us",
+    "b": "en-gb",
+    "e": "es",
+    "f": "fr-fr",
+    "h": "hi",
+    "i": "it",
+    "j": "ja",
+    "p": "pt-br",
+    "z": "zh",
 }
-
-LANGUAGE_CODES = {"a", "b", "e", "f", "h", "i", "j", "p", "z"}
-
-
-def get_language_code(voice):
-    """Return the Kokoro language code encoded by a voice ID."""
-    code = voice[:1].lower()
-    return code if code in LANGUAGE_CODES else "a"
-
-
-def ensure_language_resources(lang_code, status_callback=None):
-    """Download one-time language resources that pip cannot bundle directly."""
-    if lang_code != "j":
-        return
-
-    try:
-        import unidic
-    except ImportError as exc:
-        raise RuntimeError(
-            "Japanese support is not installed. Reinstall jaketts so its "
-            "Japanese dependencies are available."
-        ) from exc
-
-    mecabrc = os.path.join(unidic.DICDIR, "mecabrc")
-    if os.path.isfile(mecabrc):
-        return
-
-    message = (
-        "📚 Japanese support needs the UniDic dictionary. "
-        "Downloading it now (one-time setup, about 526 MB)..."
-    )
-    if status_callback is not None:
-        status_callback(message)
-    else:
-        print(message)
-
-    try:
-        subprocess.run(
-            [sys.executable, "-m", "unidic", "download"],
-            check=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise RuntimeError(
-            "Automatic UniDic download failed. Check your network connection "
-            "and that this Python environment is writable, then try again."
-        ) from exc
-
-    if not os.path.isfile(mecabrc):
-        raise RuntimeError(
-            "UniDic reported a successful download, but its dictionary files "
-            "could not be found afterward."
-        )
-
-    done_message = "✅ Japanese dictionary is ready."
-    if status_callback is not None:
-        status_callback(done_message)
-    else:
-        print(done_message)
-
-
-from importlib.metadata import version, PackageNotFoundError
 
 try:
     JAKETTS_VERSION = version("jaketts")
 except PackageNotFoundError:
     JAKETTS_VERSION = "unknown"
 
-try:
-    import logging
-
-    # Silence the standard huggingface_hub loggers
-    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
-    logging.getLogger("huggingface_hub.utils._validators").setLevel(logging.ERROR)
-    logging.getLogger("huggingface_hub.hub_mixin").setLevel(logging.ERROR)
-
-    # Silence the explicit unauthenticated warning submodule
-    logging.getLogger("huggingface_hub.utils._auth").setLevel(logging.ERROR)
-except:
-    pass
+_ASSET_PATHS = None
+_VOICE_CATALOG = None
+_KOKORO_CLASS = None
+_G2P_CACHE = {}
 
 
-# --- LAZY RUNTIME IMPORTS ---
-# Kokoro pulls in PyTorch/Transformers, which is expensive. Keep those imports
-# out of the fast CLI paths (-v, argument validation, detached GUI launcher)
-# and load them only when synthesis actually begins.
-_KPIPELINE_CLASS = None
+def get_language_tag(voice):
+    """Return the language tag encoded by a Kokoro voice ID."""
+    return LANGUAGE_BY_PREFIX.get(voice[:1].lower(), "en-us")
 
 
-def get_kpipeline_class():
-    global _KPIPELINE_CLASS
-    if _KPIPELINE_CLASS is None:
-        # Do not redirect sys.stderr while importing Kokoro. Libraries such as
-        # huggingface_hub can create logging handlers during import and retain
-        # that stream; redirecting it to a temporary file would leave those
-        # handlers pointing at a closed file after the context exits.
-        import logging
+def _candidate_asset_dirs():
+    """Return local-only locations that may contain the Kokoro assets."""
+    candidates = []
+    configured = os.environ.get("JAKETTS_ASSET_DIR")
+    if configured:
+        candidates.append(Path(configured).expanduser())
 
-        previous_disable_level = logging.root.manager.disable
-        logging.disable(logging.CRITICAL)
+    module_dir = Path(__file__).resolve().parent
+    candidates.extend(
+        [
+            module_dir / "assets",
+            Path(sys.prefix) / "share" / "jaketts",
+        ]
+    )
+
+    # Preserve order while removing duplicate paths.
+    unique = []
+    seen = set()
+    for candidate in candidates:
+        candidate = candidate.resolve()
+        if candidate not in seen:
+            seen.add(candidate)
+            unique.append(candidate)
+    return unique
+
+
+def get_asset_paths():
+    """Resolve the local FP16 model and voice bundle without using the network."""
+    global _ASSET_PATHS
+    if _ASSET_PATHS is not None:
+        return _ASSET_PATHS
+
+    checked = []
+    for asset_dir in _candidate_asset_dirs():
+        model_path = asset_dir / MODEL_FILENAME
+        voices_path = asset_dir / VOICES_FILENAME
+        checked.append(str(asset_dir))
+        if model_path.is_file() and voices_path.is_file():
+            _ASSET_PATHS = (model_path, voices_path)
+            return _ASSET_PATHS
+
+    locations = "\n  - ".join(checked)
+    raise RuntimeError(
+        "JakeTTS could not find its local Kokoro assets. Expected "
+        f"{MODEL_FILENAME} and {VOICES_FILENAME}.\n\n"
+        "Checked:\n  - "
+        f"{locations}\n\n"
+        "Install the JakeTTS runtime assets or set JAKETTS_ASSET_DIR to the "
+        "directory containing those two files. JakeTTS does not download "
+        "model or voice files while running."
+    )
+
+
+def get_available_voices():
+    """Read the voice IDs directly from the installed local voice bundle."""
+    global _VOICE_CATALOG
+    if _VOICE_CATALOG is not None:
+        return _VOICE_CATALOG
+
+    _, voices_path = get_asset_paths()
+    import numpy as np
+
+    voices = np.load(voices_path, allow_pickle=False)
+    try:
+        names = tuple(sorted(voices.files))
+    finally:
+        voices.close()
+
+    if not names:
+        raise RuntimeError(f"No voices were found in {voices_path}.")
+    if DEFAULT_VOICE not in names:
+        raise RuntimeError(
+            f"The local voice bundle does not contain the default voice {DEFAULT_VOICE}."
+        )
+
+    _VOICE_CATALOG = names
+    return _VOICE_CATALOG
+
+
+def get_kokoro_class():
+    """Import the ONNX engine lazily and keep CLI fast paths lightweight."""
+    global _KOKORO_CLASS
+    if _KOKORO_CLASS is None:
         try:
-            from kokoro import KPipeline as imported_pipeline
-        finally:
-            logging.disable(previous_disable_level)
+            import onnxruntime as ort
 
-        # Some libraries configure their own loggers during import, so apply
-        # our quiet CLI policy again after the import has completed.
-        for logger_name in (
-            "huggingface_hub",
-            "huggingface_hub.utils._http",
-            "huggingface_hub.utils._validators",
-            "huggingface_hub.utils._auth",
-        ):
-            logging.getLogger(logger_name).setLevel(logging.ERROR)
+            # Suppress harmless graph-optimization warnings emitted while the
+            # FP16 model is loaded. Real errors still surface normally.
+            ort.set_default_logger_severity(3)
+        except Exception:
+            pass
 
-        _KPIPELINE_CLASS = imported_pipeline
-    return _KPIPELINE_CLASS
+        from kokoro_onnx import Kokoro
+
+        _KOKORO_CLASS = Kokoro
+    return _KOKORO_CLASS
+
+
+def create_kokoro_engine():
+    """Create Kokoro entirely from local assets."""
+    model_path, voices_path = get_asset_paths()
+    kokoro_class = get_kokoro_class()
+    return kokoro_class(str(model_path), str(voices_path))
+
+
+def get_g2p(language):
+    """Return the lightweight local G2P used for Japanese or Chinese."""
+    cached = _G2P_CACHE.get(language)
+    if cached is not None:
+        return cached
+
+    if language == "ja":
+        from misaki import ja
+
+        g2p = ja.JAG2P(version="cutlet")
+    elif language == "zh":
+        from misaki import zh
+
+        g2p = zh.ZHG2P()
+    else:
+        raise ValueError(f"No custom G2P is required for language {language!r}.")
+
+    _G2P_CACHE[language] = g2p
+    return g2p
+
+
+def get_pause_timing(speed):
+    """Return prose timing independent of the model's spoken-word speed.
+
+    JakeTTS keeps these values deliberately conservative. The commercial
+    successor can evolve this seam into speed-aware prose timing curves.
+    """
+    _ = speed
+    return DEFAULT_SENTENCE_PAUSE, DEFAULT_CLAUSE_PAUSE
+
+
+def synthesize_text(engine, text, voice, speed):
+    """Synthesize one text block with local ONNX inference."""
+    language = get_language_tag(voice)
+    payload = text
+    is_phonemes = False
+
+    if language in {"ja", "zh"}:
+        result = get_g2p(language)(text)
+        payload = result[0] if isinstance(result, tuple) else result
+        is_phonemes = True
+
+    sentence_pause, clause_pause = get_pause_timing(speed)
+    return engine.create(
+        payload,
+        voice=voice,
+        speed=speed,
+        lang=language,
+        is_phonemes=is_phonemes,
+        trim=True,
+        sentence_pause=sentence_pause,
+        clause_pause=clause_pause,
+    )
+
+
+def add_paragraph_pause(audio, sample_rate=KOKORO_SAMPLE_RATE):
+    """Append a fixed paragraph break without changing spoken-word speed."""
+    import numpy as np
+
+    silence = np.zeros(int(DEFAULT_PARAGRAPH_PAUSE * sample_rate), dtype=audio.dtype)
+    return np.concatenate((audio, silence))
 
 
 def get_tqdm():
@@ -212,31 +239,29 @@ def get_tqdm():
         return _SimpleProgress
 
 
-# --- BATCH PROCESSING PIPELINE ---
-def process_text_in_batches(pipeline, text, voice, speed, pbar=None):
-    """
-    Safely breaks text into smaller paragraph blocks to prevent
-    memory exhaustion on massive inputs.
-    """
+def process_text_in_batches(engine, text, voice, speed, pbar=None):
+    """Synthesize paragraph blocks while preserving an explicit paragraph gap."""
     paragraphs = [p.strip() for p in re.split(r"\n+", text) if p.strip()]
     if not paragraphs:
         paragraphs = [text]
 
     audio_chunks = []
+    sample_rate = KOKORO_SAMPLE_RATE
 
-    for para in paragraphs:
+    for index, para in enumerate(paragraphs):
         try:
-            generator = pipeline(para, voice=voice, speed=speed)
-            for _, _, audio in generator:
-                if audio is not None:
-                    audio_chunks.append(audio)
+            audio, sample_rate = synthesize_text(engine, para, voice, speed)
+            if audio is not None:
+                if index < len(paragraphs) - 1:
+                    audio = add_paragraph_pause(audio, sample_rate)
+                audio_chunks.append(audio)
             if pbar:
                 pbar.update(1)
-        except Exception as e:
-            print(f"\n⚠️ Warning: Failed to synthesize segment: {e}")
+        except Exception as exc:
+            print(f"\n⚠️ Warning: Failed to synthesize segment: {exc}")
             continue
 
-    return audio_chunks
+    return audio_chunks, sample_rate
 
 
 # Internal flag used only by the detached GUI child process.
@@ -294,11 +319,9 @@ def launch_desktop_gui():
             "`python -m pip install PySide6-Essentials` and try again."
         ) from exc
 
-    # Keep one Kokoro model warm for the lifetime of the GUI. Pipelines are
-    # cached per language and share the same language-independent model.
-    pipeline_cache = {}
-    shared_model = None
-    pipeline_lock = threading.Lock()
+    # Keep one local ONNX engine warm for the lifetime of the GUI.
+    speech_engine = None
+    engine_lock = threading.Lock()
 
     shutdown_event = threading.Event()
     job_cancel_event = threading.Event()
@@ -360,6 +383,12 @@ def launch_desktop_gui():
     app.setApplicationName("jaketts")
     app.setApplicationDisplayName("JakeTTS")
     app.setOrganizationName("jaketts")
+
+    try:
+        available_voices = get_available_voices()
+    except Exception as exc:
+        QMessageBox.critical(None, "JakeTTS assets missing", str(exc))
+        return
 
     window = JakettsWindow()
     window.setWindowTitle("JakeTTS — Text to Speech")
@@ -455,62 +484,11 @@ def launch_desktop_gui():
         controls_grid.addWidget(label, 0, column)
 
     voice_dropdown = QComboBox()
-    voice_items = (
-        ("[en-us] af_heart", "af_heart"),
-        ("[en-us] af_sarah", "af_sarah"),
-        ("[en-us] af_bella", "af_bella"),
-        ("[en-us] af_nicole", "af_nicole"),
-        ("[en-us] af_sky", "af_sky"),
-        ("[en-us] af_alloy", "af_alloy"),
-        ("[en-us] af_aoede", "af_aoede"),
-        ("[en-us] af_jessica", "af_jessica"),
-        ("[en-us] af_river", "af_river"),
-        ("[en-us] am_adam", "am_adam"),
-        ("[en-us] am_michael", "am_michael"),
-        ("[en-us] am_echo", "am_echo"),
-        ("[en-us] am_eric", "am_eric"),
-        ("[en-us] am_fenrir", "am_fenrir"),
-        ("[en-us] am_liam", "am_liam"),
-        ("[en-us] am_onizuka", "am_onizuka"),
-        ("[en-us] am_puck", "am_puck"),
-        ("[en-us] am_santa", "am_santa"),
-        ("[en-gb] bm_george", "bm_george"),
-        ("[en-gb] bm_lewis", "bm_lewis"),
-        ("[en-gb] bf_emma", "bf_emma"),
-        ("[en-gb] bf_isabella", "bf_isabella"),
-        ("[en-gb] bm_fable", "bm_fable"),
-        ("[en-gb] bm_daniel", "bm_daniel"),
-        ("[en-gb] bf_alice", "bf_alice"),
-        ("[en-gb] bf_lily", "bf_lily"),
-        ("[es] ef_dora", "ef_dora"),
-        ("[es] em_alex", "em_alex"),
-        ("[fr] ff_sixtine", "ff_sixtine"),
-        ("[fr] fm_julien", "fm_julien"),
-        ("[hi] hf_ananya", "hf_ananya"),
-        ("[hi] hf_kavya", "hf_kavya"),
-        ("[hi] hm_anshul", "hm_anshul"),
-        ("[hi] hm_shiwani", "hm_shiwani"),
-        ("[it] if_sara", "if_sara"),
-        ("[it] im_nicola", "im_nicola"),
-        ("[ja] jf_alpha", "jf_alpha"),
-        ("[ja] jf_glowing", "jf_glowing"),
-        ("[ja] jf_neutral", "jf_neutral"),
-        ("[ja] jf_reader", "jf_reader"),
-        ("[ja] jm_kanta", "jm_kanta"),
-        ("[pt] pf_doris", "pf_doris"),
-        ("[pt] pm_ramon", "pm_ramon"),
-        ("[zh] zf_xiaobei", "zf_xiaobei"),
-        ("[zh] zf_xiaoni", "zf_xiaoni"),
-        ("[zh] zf_xiaoxiao", "zf_xiaoxiao"),
-        ("[zh] zf_xiaoyi", "zf_xiaoyi"),
-        ("[zh] zm_yunjian", "zm_yunjian"),
-        ("[zh] zm_yunxi", "zm_yunxi"),
-        ("[zh] zm_yunxia", "zm_yunxia"),
-        ("[zh] zm_yunyang", "zm_yunyang"),
-    )
-    for display, voice_id in voice_items:
-        voice_dropdown.addItem(display, voice_id)
-    voice_dropdown.setCurrentIndex(18)
+    for voice_id in available_voices:
+        voice_dropdown.addItem(f"[{get_language_tag(voice_id)}] {voice_id}", voice_id)
+    default_index = voice_dropdown.findData(DEFAULT_VOICE)
+    if default_index >= 0:
+        voice_dropdown.setCurrentIndex(default_index)
     controls_grid.addWidget(voice_dropdown, 1, 0)
 
     speed_row = QHBoxLayout()
@@ -636,30 +614,13 @@ def launch_desktop_gui():
         lambda title, message: QMessageBox.critical(window, title, message)
     )
 
-    def get_cached_pipeline(lang_code):
-        nonlocal shared_model
+    def get_cached_engine():
+        nonlocal speech_engine
 
-        with pipeline_lock:
-            cached = pipeline_cache.get(lang_code)
-            if cached is not None:
-                return cached
-
-            pipeline_class = get_kpipeline_class()
-            if shared_model is None:
-                pipeline = pipeline_class(
-                    lang_code=lang_code,
-                    repo_id="hexgrad/Kokoro-82M",
-                )
-                shared_model = pipeline.model
-            else:
-                pipeline = pipeline_class(
-                    lang_code=lang_code,
-                    repo_id="hexgrad/Kokoro-82M",
-                    model=shared_model,
-                )
-
-            pipeline_cache[lang_code] = pipeline
-            return pipeline
+        with engine_lock:
+            if speech_engine is None:
+                speech_engine = create_kokoro_engine()
+            return speech_engine
 
     def apply_volume(audio, volume_level):
         import numpy as np
@@ -679,7 +640,7 @@ def launch_desktop_gui():
 
         bridge.status_changed.emit("Warming speech engine…")
         try:
-            get_cached_pipeline("b")
+            get_cached_engine()
         except Exception:
             # Warm-up is opportunistic. Play/Save will surface real failures.
             pass
@@ -738,7 +699,6 @@ def launch_desktop_gui():
                 save_path += ".wav"
 
         voice = voice_dropdown.currentData()
-        lang_code = get_language_code(voice)
         speed = speed_spin.value()
         volume_level = volume_slider.value() / 100.0
         job_cancel_event.clear()
@@ -753,14 +713,7 @@ def launch_desktop_gui():
                 bridge.status_changed.emit("Loading speech engine…")
                 bridge.progress_indeterminate.emit()
 
-                ensure_language_resources(
-                    lang_code,
-                    status_callback=bridge.status_changed.emit,
-                )
-                if job_cancelled():
-                    return
-
-                pipeline = get_cached_pipeline(lang_code)
+                engine = get_cached_engine()
                 if job_cancelled():
                     return
 
@@ -776,35 +729,38 @@ def launch_desktop_gui():
                 if action_type == "play":
                     import sounddevice as sd
 
-                    for para in paragraphs:
+                    for index, para in enumerate(paragraphs):
                         if job_cancelled():
                             return
-                        generator = pipeline(para, voice=voice, speed=speed)
-                        for _, _, audio in generator:
-                            if job_cancelled():
-                                return
-                            if audio is not None:
-                                sd.play(
-                                    apply_volume(audio, volume_level), samplerate=24000
-                                )
-                                sd.wait()
-                                if job_cancelled():
-                                    return
+                        audio, sample_rate = synthesize_text(
+                            engine, para, voice, speed
+                        )
+                        if job_cancelled():
+                            return
+                        if index < len(paragraphs) - 1:
+                            audio = add_paragraph_pause(audio, sample_rate)
+                        sd.play(apply_volume(audio, volume_level), samplerate=sample_rate)
+                        sd.wait()
+                        if job_cancelled():
+                            return
                         bridge.progress_step.emit()
 
                     if not job_cancelled():
                         bridge.status_changed.emit("Playback finished")
                 else:
                     audio_chunks = []
-                    for para in paragraphs:
+                    sample_rate = KOKORO_SAMPLE_RATE
+                    for index, para in enumerate(paragraphs):
                         if job_cancelled():
                             return
-                        generator = pipeline(para, voice=voice, speed=speed)
-                        for _, _, audio in generator:
-                            if job_cancelled():
-                                return
-                            if audio is not None:
-                                audio_chunks.append(apply_volume(audio, volume_level))
+                        audio, sample_rate = synthesize_text(
+                            engine, para, voice, speed
+                        )
+                        if job_cancelled():
+                            return
+                        if index < len(paragraphs) - 1:
+                            audio = add_paragraph_pause(audio, sample_rate)
+                        audio_chunks.append(apply_volume(audio, volume_level))
                         bridge.progress_step.emit()
 
                     if not audio_chunks:
@@ -814,7 +770,7 @@ def launch_desktop_gui():
                     import soundfile as sf
 
                     combined = np.concatenate(audio_chunks)
-                    sf.write(save_path, combined, 24000)
+                    sf.write(save_path, combined, sample_rate)
                     bridge.status_changed.emit(f"Saved {os.path.basename(save_path)}")
                     bridge.info_requested.emit(
                         "Saved",
@@ -890,7 +846,13 @@ def main():
         print(f"jaketts {JAKETTS_VERSION}")
         sys.exit(0)
 
-    detected_voice = "bm_george"
+    try:
+        voice_whitelist = set(get_available_voices())
+    except RuntimeError as exc:
+        print(f"❌ {exc}")
+        sys.exit(1)
+
+    detected_voice = DEFAULT_VOICE
     voice_found = False
 
     output_requested = False
@@ -909,7 +871,7 @@ def main():
         # ------------------------------------------------------------
         # Voice ID
         # ------------------------------------------------------------
-        if arg_lower in VOICE_WHITELIST and not voice_found:
+        if arg_lower in voice_whitelist and not voice_found:
             detected_voice = arg_lower
             voice_found = True
             i += 1
@@ -960,7 +922,7 @@ def main():
             if i + 1 < len(raw_args):
                 candidate = raw_args[i + 1]
 
-                if candidate.lower() not in VOICE_WHITELIST and candidate not in (
+                if candidate.lower() not in voice_whitelist and candidate not in (
                     "-o",
                     "--output",
                     "-s",
@@ -1071,20 +1033,13 @@ def main():
         print("❌ Error: No text content found to synthesize.")
         sys.exit(1)
 
-    lang_code = get_language_code(args.voice)
+    language = get_language_tag(args.voice)
 
+    print(f"🤖 Initializing local Kokoro ONNX Engine (Locale: {language})...")
     try:
-        ensure_language_resources(lang_code)
-    except RuntimeError as e:
-        print(f"❌ {e}")
-        sys.exit(1)
-
-    print(f"🤖 Initializing Kokoro Engine (Locale: {lang_code})...")
-    try:
-        pipeline_class = get_kpipeline_class()
-        pipeline = pipeline_class(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
-    except Exception as e:
-        print(f"❌ Failed to load pipeline: {e}")
+        engine = create_kokoro_engine()
+    except Exception as exc:
+        print(f"❌ Failed to load local speech engine: {exc}")
         sys.exit(1)
 
     print(f"🗣️  Synthesizing text via voice '{args.voice}' (Speed: {args.speed}x)...")
@@ -1101,8 +1056,8 @@ def main():
         pbar = tqdm(
             total=total_chunks, desc="Processing Paragraph Blocks", unit="chunk"
         )
-        audio_chunks = process_text_in_batches(
-            pipeline, final_text, args.voice, args.speed, pbar=pbar
+        audio_chunks, sample_rate = process_text_in_batches(
+            engine, final_text, args.voice, args.speed, pbar=pbar
         )
 
         pbar.n = pbar.total
@@ -1114,7 +1069,7 @@ def main():
             sys.exit(1)
 
         combined_audio = np.concatenate(audio_chunks)
-        sf.write(args.output, combined_audio, 24000)
+        sf.write(args.output, combined_audio, sample_rate)
         print(f"✨ Success! Audio file written to: {os.path.abspath(args.output)}")
     else:
         import sounddevice as sd
@@ -1124,15 +1079,17 @@ def main():
         if not paragraphs:
             paragraphs = [final_text]
 
-        for para in paragraphs:
+        for index, para in enumerate(paragraphs):
             try:
-                generator = pipeline(para, voice=args.voice, speed=args.speed)
-                for _, _, audio in generator:
-                    if audio is not None:
-                        sd.play(audio, samplerate=24000)
-                        sd.wait()
-            except Exception as e:
-                print(f"\n⚠️ Error speaking segment: {e}")
+                audio, sample_rate = synthesize_text(
+                    engine, para, args.voice, args.speed
+                )
+                if index < len(paragraphs) - 1:
+                    audio = add_paragraph_pause(audio, sample_rate)
+                sd.play(audio, samplerate=sample_rate)
+                sd.wait()
+            except Exception as exc:
+                print(f"\n⚠️ Error speaking segment: {exc}")
 
 
 if __name__ == "__main__":

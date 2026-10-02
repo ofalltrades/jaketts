@@ -251,4 +251,161 @@ if jaketts am_adam -s banana \
 fi
 echo "🎉 Test 20 Passed!"
 
+
+# -------------------------------------------------------------
+echo -e "\n🔹 Test 21: Exact 1.0.10 Version and Both CLI Aliases"
+expected_version="jaketts 1.0.10"
+
+if [ "$(jaketts -v)" != "$expected_version" ]; then
+    echo "❌ Test 21 Failed: jaketts does not report exactly 1.0.10."
+    exit 1
+fi
+
+if ! command -v jtts >/dev/null 2>&1; then
+    echo "❌ Test 21 Failed: jtts alias is not installed."
+    exit 1
+fi
+
+if [ "$(jtts -v)" != "$expected_version" ]; then
+    echo "❌ Test 21 Failed: jtts does not report exactly 1.0.10."
+    exit 1
+fi
+
+echo "🎉 Test 21 Passed!"
+
+
+# -------------------------------------------------------------
+echo -e "\n🔹 Test 22: Local Voice Bundle Inventory"
+
+python - <<'PYVOICE'
+import jaketts
+
+voices = jaketts.get_available_voices()
+
+assert len(voices) == 54, f"Expected 54 voices, found {len(voices)}"
+assert jaketts.DEFAULT_VOICE == "bm_george"
+assert "bm_george" in voices
+assert "ff_siwis" in voices
+assert "ff_sixtine" not in voices
+assert "zf_xiaobei" in voices
+assert "jf_alpha" in voices
+
+print(f"   Local bundle contains {len(voices)} voices.")
+print("   Current French ff_siwis present; stale ff_sixtine absent.")
+PYVOICE
+
+echo "🎉 Test 22 Passed!"
+
+
+# -------------------------------------------------------------
+echo -e "\n🔹 Test 23: Chinese Misaki → ONNX Synthesis Path"
+
+TEST_WAVS+=("test23_zh.wav")
+
+if ! test23_output="$(
+    jaketts zf_xiaobei \
+        -o test23_zh.wav \
+        "清晨的阳光从窗户照了进来。" 2>&1
+)"; then
+    echo "$test23_output"
+    echo "❌ Test 23 Failed: Chinese synthesis crashed."
+    exit 1
+fi
+
+echo "$test23_output"
+
+if [ ! -s "test23_zh.wav" ]; then
+    echo "❌ Test 23 Failed: Chinese WAV is missing or empty."
+    exit 1
+fi
+
+if [[ "$test23_output" != *"Locale: zh"* ]]; then
+    echo "❌ Test 23 Failed: Chinese voice did not select locale zh."
+    exit 1
+fi
+
+echo "🎉 Test 23 Passed!"
+
+
+# -------------------------------------------------------------
+echo -e "\n🔹 Test 24: Missing Assets Fail Locally Without Download Fallback"
+
+python - <<'PYASSETS'
+import tempfile
+from pathlib import Path
+import jaketts
+
+original_candidates = jaketts._candidate_asset_dirs
+original_paths = jaketts._ASSET_PATHS
+
+try:
+    with tempfile.TemporaryDirectory() as tmp:
+        jaketts._ASSET_PATHS = None
+        jaketts._candidate_asset_dirs = lambda: [Path(tmp)]
+
+        try:
+            jaketts.get_asset_paths()
+        except RuntimeError as exc:
+            message = str(exc)
+            assert "could not find its local Kokoro assets" in message
+            assert "does not download model or voice files while running" in message
+        else:
+            raise AssertionError("Missing assets unexpectedly succeeded.")
+finally:
+    jaketts._candidate_asset_dirs = original_candidates
+    jaketts._ASSET_PATHS = original_paths
+
+print("   Missing assets produce a local-only error.")
+PYASSETS
+
+echo "🎉 Test 24 Passed!"
+
+
+# -------------------------------------------------------------
+echo -e "\n🔹 Test 25: Generated WAV Structural Validation"
+
+python - <<'PYWAV'
+import numpy as np
+import soundfile as sf
+
+audio, rate = sf.read("test1_custom.wav", dtype="float32")
+
+assert rate == 24000, f"Unexpected sample rate: {rate}"
+assert audio.ndim == 1, f"Expected mono audio, got shape {audio.shape}"
+assert len(audio) > 1000, "Audio is unexpectedly short."
+assert np.isfinite(audio).all(), "Audio contains NaN or infinity."
+assert float(np.max(np.abs(audio))) > 0.001, "Audio appears silent."
+
+print(f"   Valid mono 24 kHz WAV with {len(audio)} samples.")
+PYWAV
+
+echo "🎉 Test 25 Passed!"
+
+
+# -------------------------------------------------------------
+echo -e "\n🔹 Test 26: Final Runtime Dependency Architecture"
+
+python - <<'PYDEPS'
+from importlib import metadata
+
+requirements = metadata.requires("jaketts") or []
+requirements_lower = [item.lower() for item in requirements]
+
+assert any(item.startswith("kokoro-onnx==0.6.1") for item in requirements_lower)
+
+for forbidden in ("torch", "transformers", "huggingface-hub", "kokoro>=", "kokoro=="):
+    assert not any(
+        item.startswith(forbidden) for item in requirements_lower
+    ), f"Old runtime dependency still present: {forbidden}"
+
+license_name = metadata.metadata("jaketts").get("License")
+assert license_name == "0BSD", f"Unexpected package license metadata: {license_name!r}"
+
+print("   kokoro-onnx 0.6.1 present.")
+print("   Torch / Transformers / Hugging Face runtime dependencies absent.")
+print("   Package license metadata is 0BSD.")
+PYDEPS
+
+echo "🎉 Test 26 Passed!"
+
 echo -e "\n🚀 ALL INTEGRATION MATRIX TESTS PASSED SUCCESSFULLY!"
