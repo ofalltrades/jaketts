@@ -10,9 +10,9 @@ The default voice is `bm_george`.
 
 ## Project status
 
-JakeTTS 1.0.10 is the final release. No new features, enhancement requests, or request-driven changes are planned. The repository is intended to become read-only after the final release is published.
+JakeTTS 1.0.10 is the final planned release. No new features, enhancement requests, or request-driven changes are planned. The repository will remain available, but JakeTTS is no longer under active development.
 
-If you use the free/open-source JakeTTS and want to extend it, change its behavior, add platforms, or maintain it further, **fork the repository and continue from your own fork**. A severe defect discovered before archival may be addressed at the maintainer's discretion, but no ongoing maintenance or support is promised.
+If you use the free/open-source JakeTTS and want to extend it, change its behavior, add platforms, or maintain it further, **fork the repository and continue from your own fork**. Defects may be addressed at the maintainer's discretion, but no ongoing maintenance or support is promised.
 
 ## Features
 
