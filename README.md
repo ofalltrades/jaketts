@@ -1,12 +1,18 @@
 # 🔊 JakeTTS
 
-`jaketts` — also available as the shorter `jtts` command — is a local text-to-speech utility for macOS powered by the open-weight **Kokoro-82M** model.
+`jaketts` — also available as the shorter `jtts` command — is a local text-to-speech utility for macOS powered by the open-weight **Kokoro-82M** model via ONNX Runtime.
 
 It can play synthesized speech directly through your speakers, save WAV files, read plain-text files, switch between Kokoro voices, adjust playback speed, and launch a Qt desktop interface when run with no arguments.
 
 The default voice is `bm_george`.
 
-**JakeTTS 1.0.10 is the final feature release of the open-source application.** The project remains available as a small, permissively licensed local TTS tool; future product development continues separately.
+**JakeTTS 1.0.10 is the final release of the open-source application.** The JakeTTS source code remains available under 0BSD, but the project is no longer under active feature development.
+
+## Project status
+
+JakeTTS 1.0.10 is the final release. No new features, enhancement requests, or request-driven changes are planned. The repository is intended to become read-only after the final release is published.
+
+If you use the free/open-source JakeTTS and want to extend it, change its behavior, add platforms, or maintain it further, **fork the repository and continue from your own fork**. A severe defect discovered before archival may be addressed at the maintainer's discretion, but no ongoing maintenance or support is promised.
 
 ## Features
 
@@ -15,9 +21,9 @@ The default voice is `bm_george`.
 - 📖 Plain-text file input
 - 🗣️ Voice selection from the installed Kokoro voice bundle
 - ⏩ Adjustable speech speed with a 0.80× default
-- 🌍 Kokoro voice families for English, Spanish, French, Hindi, Italian, Japanese, Portuguese, and Chinese
+- 🌍 Kokoro voice families for English, Spanish, French, Hindi, Italian, Japanese, Brazilian Portuguese, and Mandarin Chinese
 - 🖥️ Qt desktop GUI with voice, exact speed, volume, and Stop controls
-- 🔒 Fully local synthesis after installation — no model or voice downloads at runtime
+- 🔒 Fully local synthesis once dependencies and runtime assets are installed — no model or voice downloads at runtime
 - ⚡ `jaketts` and `jtts` command aliases
 - 🇯🇵 Lightweight local Japanese support using UniDic Lite instead of a first-run full-UniDic download
 - 🧠 Kokoro ONNX FP16 inference instead of the much larger PyTorch runtime
@@ -35,25 +41,37 @@ JakeTTS never downloads these files while synthesizing speech. It looks for them
 2. an `assets` directory beside `jaketts.py`
 3. `<python-prefix>/share/jaketts` (used by the Homebrew package)
 
-Homebrew installs the assets automatically. Source/PyPI users can download them once during setup:
+Homebrew installs the assets automatically. PyPI users can install them in a stable per-user directory and point JakeTTS at it:
 
 ```bash
-mkdir -p assets
+ASSET_DIR="$HOME/.local/share/jaketts"
+mkdir -p "$ASSET_DIR"
 
 curl -L --fail \
-  -o assets/kokoro-v1.0.fp16.onnx \
+  -o "$ASSET_DIR/kokoro-v1.0.fp16.onnx" \
   https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.fp16.onnx
 
 curl -L --fail \
-  -o assets/voices-v1.0.bin \
+  -o "$ASSET_DIR/voices-v1.0.bin" \
   https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin
+
+export JAKETTS_ASSET_DIR="$ASSET_DIR"
 ```
+
+The expected SHA-256 hashes are:
+
+| Asset | SHA-256 |
+| --- | --- |
+| `kokoro-v1.0.fp16.onnx` | `f3a290d384fbb27966d462905c71a46cef9e5fd00516b40df32a0b4afe77ac96` |
+| `voices-v1.0.bin` | `bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d` |
+
+For a source checkout, you may instead place both files in `./assets`, which is beside `jaketts.py`.
 
 Once dependencies and these two assets are installed, normal JakeTTS use does not require an internet connection.
 
 ## Requirements
 
-JakeTTS supports Python 3.10 through Python 3.12.
+The Python package requires Python 3.10 through Python 3.12 (`>=3.10,<3.13`). The final release was tested primarily on Python 3.12, and the Homebrew package uses Python 3.12.
 
 Version 1.0.10 uses `kokoro-onnx` for inference. Japanese and Chinese use lightweight local Misaki G2P paths before the phonemes are passed to the same ONNX model. Other supported languages use the local eSpeak-based phonemizer included in the installed runtime.
 
@@ -95,11 +113,7 @@ Install the Python code and dependencies:
 python -m pip install jaketts
 ```
 
-Then place the two runtime assets described above in a local directory and either put them in an `assets` directory beside a source checkout or point JakeTTS at them:
-
-```bash
-export JAKETTS_ASSET_DIR="$HOME/.local/share/jaketts"
-```
+Then install the two runtime assets using the commands in **Runtime assets** above. Keep `JAKETTS_ASSET_DIR` set to that directory when running JakeTTS.
 
 Both commands are installed:
 
@@ -118,7 +132,7 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-Download the runtime assets into `./assets` using the commands in **Runtime assets** above. Editable mode means changes to `jaketts.py` are used immediately without reinstalling the package.
+Download the two runtime assets into `./assets` (using the same upstream URLs and hashes shown in **Runtime assets**). Editable mode means changes to `jaketts.py` are used immediately without reinstalling the package.
 
 ## Usage
 
@@ -149,7 +163,7 @@ If no installed voice ID is supplied, `bm_george` is used.
 
 ### Japanese and Chinese
 
-Japanese and Chinese are phonemized locally and then synthesized by Kokoro ONNX:
+Japanese and Mandarin Chinese are phonemized locally and then synthesized by Kokoro through ONNX Runtime:
 
 ```bash
 jtts jf_alpha "こんにちは世界"
@@ -196,7 +210,7 @@ jtts --speed 0.9 am_adam "Speak this a little slower."
 jtts --speed=1.1 "Slightly faster speech."
 ```
 
-Kokoro ONNX exposes sentence and clause pauses independently from spoken-word speed. JakeTTS 1.0.10 uses conservative fixed pause values internally, leaving a clean foundation for more advanced prose-aware pacing in downstream projects.
+`kokoro-onnx` exposes sentence and clause pauses independently from spoken-word speed. JakeTTS 1.0.10 uses conservative fixed pause values internally.
 
 ### Flexible argument ordering
 
@@ -230,8 +244,25 @@ Some useful examples include:
 | `am_adam` | American English | Male American voice |
 | `ff_siwis` | French | Female French voice |
 | `jf_alpha` | Japanese | Female Japanese voice |
-| `pf_dora` | Portuguese | Female Portuguese voice |
-| `zf_xiaobei` | Chinese | Female Chinese voice |
+| `pf_dora` | Brazilian Portuguese | Female Brazilian Portuguese voice |
+| `zf_xiaobei` | Mandarin Chinese | Female Mandarin Chinese voice |
+
+## Development and testing
+
+The final source tree includes `test_app.sh`, a 26-test integration matrix. Run it from an editable install in an isolated virtual environment so the commands under test resolve to the current checkout rather than to an older global or Homebrew installation:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+
+# Put the two runtime files in ./assets, or point at an existing asset directory.
+export JAKETTS_ASSET_DIR="$HOME/.local/share/jaketts"
+
+./test_app.sh
+```
+
+The test script intentionally refuses to run against a different installed copy of JakeTTS.
 
 ## Privacy / offline behavior
 
@@ -239,6 +270,8 @@ JakeTTS does not use a hosted TTS API and does not fetch model or voice files du
 
 ## License
 
-JakeTTS itself is released under the **BSD Zero Clause License (0BSD)**. You may use, copy, modify, distribute, or sell the JakeTTS code for any purpose, with or without fee, subject to the license text in `LICENSE`.
+JakeTTS's own source code is released under the **BSD Zero Clause License (0BSD)**. You may use, copy, modify, distribute, or sell the JakeTTS code for any purpose, with or without fee, subject to the license text in `LICENSE`.
 
-Third-party dependencies and model assets retain their own licenses.
+**0BSD applies only to JakeTTS's own code. It does not relicense the model, Python packages, native libraries, dictionaries, or other third-party components used at runtime.** The current dependency tree includes components under Apache-2.0, MIT/BSD-style licenses, LGPL, and GPL terms. In particular, `kokoro-onnx` depends on GPLv3-or-later `phonemizer` and on `espeakng-loader`, which loads the GPLv3-or-later eSpeak NG library, while PySide6/Qt and libsndfile have LGPL/commercial licensing considerations.
+
+If you redistribute JakeTTS or build another product from it, you are responsible for complying with the licenses of the third-party components you distribute or link. Do not assume that JakeTTS's 0BSD license makes the complete runtime stack permissively licensed. See `THIRD_PARTY_NOTICES.md` in the source repository for the key licensing notes and upstream sources.

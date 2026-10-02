@@ -7,17 +7,16 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 setup(
     name="jaketts",
     version="1.0.10",
-    description="Local macOS text-to-speech powered by Kokoro-82M via ONNX",
+    description="Local macOS text-to-speech powered by Kokoro-82M via ONNX Runtime",
     long_description=README,
     long_description_content_type="text/markdown",
     author="Jake",
     url="https://github.com/ofalltrades/jaketts",
     project_urls={
         "Source": "https://github.com/ofalltrades/jaketts",
-        "Issues": "https://github.com/ofalltrades/jaketts/issues",
     },
     license="0BSD",
-    license_files=["LICENSE"],
+    license_files=["LICENSE", "THIRD_PARTY_NOTICES.md"],
     py_modules=["jaketts"],
     install_requires=[
         "PySide6-Essentials>=6.8,<7",

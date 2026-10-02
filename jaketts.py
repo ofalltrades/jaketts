@@ -176,8 +176,7 @@ def get_g2p(language):
 def get_pause_timing(speed):
     """Return prose timing independent of the model's spoken-word speed.
 
-    JakeTTS keeps these values deliberately conservative. The commercial
-    successor can evolve this seam into speed-aware prose timing curves.
+    JakeTTS keeps these values deliberately conservative.
     """
     _ = speed
     return DEFAULT_SENTENCE_PAUSE, DEFAULT_CLAUSE_PAUSE
@@ -420,7 +419,7 @@ def launch_desktop_gui():
     title_font.setBold(True)
     title.setFont(title_font)
 
-    subtitle = QLabel("Local text-to-speech powered by Kokoro-82M")
+    subtitle = QLabel("Local text-to-speech powered by Kokoro-82M via ONNX Runtime")
     subtitle.setEnabled(False)
     title_column.addWidget(title)
     title_column.addWidget(subtitle)
@@ -981,7 +980,7 @@ def main():
     # ARGPARSE ENGINE
     # ------------------------------------------------------------
     parser = argparse.ArgumentParser(
-        description="🔊 Jake's Smart Text-to-Speech CLI utility powered by Kokoro."
+        description="🔊 Local text-to-speech powered by Kokoro-82M via ONNX Runtime."
     )
 
     parser.add_argument(

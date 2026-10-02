@@ -18,9 +18,8 @@ env/
 *.wav
 *.mp3
 
-# Downloaded Hugging Face weights cache (if saved locally in the path)
+# Local caches
 .cache/
-hf_models/
 
 # Local Environment Managers
 .mise.toml

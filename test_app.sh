@@ -26,9 +26,53 @@ trap cleanup EXIT
 
 echo "🧪 Starting Integrated CLI Testing Matrix for jaketts..."
 
-# Ensure binary execution shortcut exists inside python environment paths
-if ! command -v jaketts &> /dev/null; then
-    echo "❌ Error: 'jaketts' executable shortcut cannot be resolved. Did you run 'pip install -e .' first?"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+if [ -z "${VIRTUAL_ENV:-}" ]; then
+    echo "❌ Error: tests must run inside a virtual environment."
+    echo "   Create one with: python3.12 -m venv .venv && source .venv/bin/activate"
+    exit 1
+fi
+
+for command_name in python jaketts jtts; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+        echo "❌ Error: '$command_name' cannot be resolved. Run 'python -m pip install -e .' first."
+        exit 1
+    fi
+done
+
+for command_name in jaketts jtts; do
+    command_path="$(command -v "$command_name")"
+    if [[ "$command_path" != "$VIRTUAL_ENV"/bin/* ]]; then
+        echo "❌ Error: '$command_name' resolves outside the active virtual environment:"
+        echo "   $command_path"
+        exit 1
+    fi
+done
+
+module_path="$(python - <<'PYMODULE'
+from pathlib import Path
+import jaketts
+print(Path(jaketts.__file__).resolve())
+PYMODULE
+)"
+expected_module="$(python - <<'PYMODULE'
+from pathlib import Path
+print(Path('jaketts.py').resolve())
+PYMODULE
+)"
+
+if [ "$module_path" != "$expected_module" ]; then
+    echo "❌ Error: Python is not importing jaketts.py from this checkout:"
+    echo "   $module_path"
+    echo "   Run 'python -m pip install -e .' in the active virtual environment."
+    exit 1
+fi
+
+expected_version="jaketts 1.0.10"
+if [ "$(jaketts -v)" != "$expected_version" ] || [ "$(jtts -v)" != "$expected_version" ]; then
+    echo "❌ Error: active CLI aliases are not JakeTTS 1.0.10."
     exit 1
 fi
 
@@ -104,8 +148,8 @@ if [ ! -s "test8_ja.wav" ]; then
     exit 1
 fi
 
-if [[ "$test8_output" != *"Locale: j"* ]]; then
-    echo "❌ Test 8 Failed: jf_alpha did not select Kokoro locale 'j'."
+if [[ "$test8_output" != *"Locale: ja"* ]]; then
+    echo "❌ Test 8 Failed: jf_alpha did not select locale 'ja'."
     exit 1
 fi
 
