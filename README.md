@@ -14,6 +14,8 @@ JakeTTS 1.0.10 is the final planned release. No new features, enhancement reques
 
 If you use the free/open-source JakeTTS and want to extend it, change its behavior, add platforms, or maintain it further, **fork the repository and continue from your own fork**. Defects may be addressed at the maintainer's discretion, but no ongoing maintenance or support is promised.
 
+<img width="1926" height="1556" alt="jttsui" src="https://github.com/user-attachments/assets/a76369e4-c193-42b3-9c34-d774bad38f50" />
+
 ## Features
 
 - 🔊 Direct speaker playback
